@@ -103,17 +103,9 @@ def main():
             }
             slint_connections.append(slint_conn)
         
-        # For now, we'll use static data in Slint to verify the graph displays
-        # The Python data structure demonstrates that graph can be managed from Python
-        logger.debug("Using static data in Slint component (matches Python-generated data)")
-        logger.debug("This demonstrates the graph architecture and data flow")
-        
-        # TODO: Implement proper Python-to-Slint data binding for dynamic updates
-        # The current implementation shows that:
-        # 1. Graph data is generated correctly in Python
-        # 2. Slint components can render the graph dynamically
-        # 3. The architecture supports full Python control of the graph
-        
+        main_window.nodes = slint.ListModel(slint_nodes)
+        main_window.connections = slint.ListModel(slint_connections)
+
         # Log any callbacks or property changes
         logger.debug("Main window created successfully")
         

@@ -157,23 +157,8 @@ export struct ConnectionData {
 export component GraphView {
     in property <length> graph-width: 600px;
     in property <length> graph-height: 400px;
-    in property <[NodeData]> nodes: [
-        { id: "input_a", node_type: "input", x: 50px, y: 50px, width: 50px, height: 50px, label: "A" },
-        { id: "input_b", node_type: "input", x: 50px, y: 150px, width: 50px, height: 50px, label: "B" },
-        { id: "input_c", node_type: "input", x: 50px, y: 250px, width: 50px, height: 50px, label: "C" },
-        { id: "and_gate", node_type: "and", x: 200px, y: 80px, width: 80px, height: 60px, label: "AND" },
-        { id: "or_gate", node_type: "or", x: 200px, y: 220px, width: 80px, height: 60px, label: "OR" },
-        { id: "not_gate", node_type: "not", x: 400px, y: 150px, width: 80px, height: 60px, label: "NOT" },
-        { id: "output", node_type: "output", x: 550px, y: 175px, width: 50px, height: 50px, label: "OUT" }
-    ];
-    in property <[ConnectionData]> connections: [
-        { id: "c1", start_x: 96px, start_y: 71px, end_x: 200px, end_y: 99px },
-        { id: "c2", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 119px },
-        { id: "c3", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 239px },
-        { id: "c4", start_x: 96px, start_y: 271px, end_x: 200px, end_y: 259px },
-        { id: "c5", start_x: 276px, start_y: 106px, end_x: 400px, end_y: 169px },
-        { id: "c6", start_x: 476px, start_y: 176px, end_x: 550px, end_y: 196px }
-    ];
+    in property <[NodeData]> nodes: [];
+    in property <[ConnectionData]> connections: [];
     
     width: graph-width;
     height: graph-height;
