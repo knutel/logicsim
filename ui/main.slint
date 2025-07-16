@@ -1,38 +1,81 @@
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { GraphView, NodeData, ConnectionData } from "graph.slint";
 
 export component MainWindow inherits Window {
     title: "LogicSim";
     width: 800px;
     height: 600px;
     
+    // Expose graph data properties with default values
+    in property <[NodeData]> nodes: [
+        { id: "input_a", node_type: "input", x: 50px, y: 50px, width: 50px, height: 50px, label: "A" },
+        { id: "input_b", node_type: "input", x: 50px, y: 150px, width: 50px, height: 50px, label: "B" },
+        { id: "input_c", node_type: "input", x: 50px, y: 250px, width: 50px, height: 50px, label: "C" },
+        { id: "and_gate", node_type: "and", x: 200px, y: 80px, width: 80px, height: 60px, label: "AND" },
+        { id: "or_gate", node_type: "or", x: 200px, y: 220px, width: 80px, height: 60px, label: "OR" },
+        { id: "not_gate", node_type: "not", x: 400px, y: 150px, width: 80px, height: 60px, label: "NOT" },
+        { id: "output", node_type: "output", x: 550px, y: 175px, width: 50px, height: 50px, label: "OUT" }
+    ];
+    in property <[ConnectionData]> connections: [
+        { id: "c1", start_x: 96px, start_y: 71px, end_x: 200px, end_y: 99px },
+        { id: "c2", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 119px },
+        { id: "c3", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 239px },
+        { id: "c4", start_x: 96px, start_y: 271px, end_x: 200px, end_y: 259px },
+        { id: "c5", start_x: 276px, start_y: 106px, end_x: 400px, end_y: 169px },
+        { id: "c6", start_x: 476px, start_y: 176px, end_x: 550px, end_y: 196px }
+    ];
+    
+    // Debug data received from Python
+    init => {
+        debug("MainWindow initialized");
+        debug("MainWindow nodes array length: " + nodes.length);
+        debug("MainWindow connections array length: " + connections.length);
+    }
+    
     VerticalBox {
-        alignment: center;
-        spacing: 20px;
+        spacing: 10px;
+        padding: 10px;
         
-        Text {
-            text: "Welcome to LogicSim";
-            font-size: 24px;
-            horizontal-alignment: center;
+        // Title section
+        HorizontalBox {
+            alignment: center;
+            height: 50px;
+            
+            Text {
+                text: "LogicSim - Logic Circuit Simulator";
+                font-size: 18px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
         
-        Text {
-            text: "A Python GUI application using Slint";
-            font-size: 14px;
-            horizontal-alignment: center;
+        // Main graph view
+        GraphView {
+            graph-width: 760px;
+            graph-height: 480px;
+            nodes: root.nodes;
+            connections: root.connections;
         }
         
+        // Control buttons
         HorizontalBox {
             alignment: center;
             spacing: 10px;
+            height: 40px;
             
             Button {
-                text: "Start";
-                width: 100px;
+                text: "Reset";
+                width: 80px;
+            }
+            
+            Button {
+                text: "Simulate";
+                width: 80px;
             }
             
             Button {
                 text: "Exit";
-                width: 100px;
+                width: 80px;
             }
         }
     }

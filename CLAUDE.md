@@ -21,11 +21,18 @@ uv add package_name --dev  # Add development dependency
 - The application loads UI from `ui/main.slint` dynamically
 - Slint diagnostics are printed to help debug UI file issues
 
+### Debugging and Logging
+```bash
+LOGICSIM_LOG_LEVEL=DEBUG uv run python main.py  # Enable debug logging
+LOGICSIM_LOG_LEVEL=INFO uv run python main.py   # Default logging level
+```
+
 ## Architecture Overview
 
 ### Project Structure
 - **Entry Point**: `main.py` - Application entry point with error handling and Slint integration
-- **UI Definition**: `ui/main.slint` - Slint UI files for interface definition
+- **UI Definition**: `ui/main.slint` - Main window UI, `ui/graph.slint` - Graph visualization components
+- **Graph Data**: `logicsim/graph_data.py` - Graph data structures and management
 - **Package**: `logicsim/` - Python package structure
 - **Dependencies**: Managed via `pyproject.toml` and `uv.lock`
 
@@ -65,3 +72,43 @@ The application includes comprehensive error handling that:
 - Uses `uv` for modern Python package management
 - Virtual environment automatically managed by `uv`
 - Claude Code permissions configured in `.claude/settings.local.json` for Slint documentation access
+
+## Graph Visualization System
+
+### Graph Data Management
+The graph system uses Python for data management and Slint for rendering:
+
+- **`logicsim/graph_data.py`**: Complete graph data structures with nodes, connectors, and connections
+- **Node types**: Input nodes, logic gates (AND, OR, NOT), output nodes
+- **Connector system**: Each node has precisely positioned connector points (black dots)
+- **Connection lines**: Lines connect between specific connectors on nodes
+
+### Graph Component Architecture
+- **`ui/graph.slint`**: Dynamic graph rendering using data-driven components
+- **NodeData struct**: Defines node properties (id, type, position, size, label)
+- **ConnectionData struct**: Defines connection properties (id, start/end coordinates)
+- **Dynamic rendering**: Uses `for` loops to render nodes and connections from data arrays
+
+### Key Implementation Details
+
+#### Slint Path Elements for Lines
+- Connection lines use Slint's `Path` element with `MoveTo` and `LineTo` commands
+- **Important**: Path coordinates are relative to the Path element bounds, not container
+- Line positioning calculation: Path positioned at line start with width/height spanning to end
+- Path coordinates: (0,0) to (width, height) for line endpoints
+
+#### Data Structure Design
+- **Graph definition**: Controlled entirely from Python side
+- **Extensible**: Easy to add new node types and connection patterns
+- **Precise positioning**: Mathematical calculation of connector positions for exact line connections
+- **Data flow**: Python generates data → Slint renders components → Visual display
+
+#### Debug Support
+- **Slint debug()**: Use `debug()` function in Slint to verify data received from Python
+- **Python logging**: Comprehensive logging with configurable levels
+- **Diagnostic output**: Both Python and Slint sides provide detailed debug information
+
+### Known Limitations
+- **Python-to-Slint data binding**: Currently uses static data in Slint (Python data structure ready)
+- **Connector positioning**: May need fine-tuning for pixel-perfect alignment
+- **Future enhancement**: Full dynamic data binding from Python to Slint arrays

@@ -1,0 +1,281 @@
+// Graph visualization component for LogicSim
+
+// Individual connector component (black dot)
+export component Connector {
+    in property <length> size: 8px;
+    in property <color> color: #000000;
+    
+    width: size;
+    height: size;
+    
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: color;
+        border-radius: size / 2;
+    }
+}
+
+// Logic gate shape component
+component LogicGate {
+    in property <string> gate-type: "AND";
+    in property <length> gate-width: 80px;
+    in property <length> gate-height: 60px;
+    in property <color> background-color: #e0e0e0;
+    in property <color> border-color: #404040;
+    
+    width: gate-width;
+    height: gate-height;
+    
+    // Main gate body
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: background-color;
+        border-color: border-color;
+        border-width: 2px;
+        
+        // Gate label
+        Text {
+            text: gate-type;
+            color: #000000;
+            font-size: 14px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    
+    // Input connectors (left side)
+    Connector {
+        x: -4px;
+        y: 15px;
+    }
+    
+    Connector {
+        x: -4px;
+        y: 35px;
+    }
+    
+    // Output connector (right side)
+    Connector {
+        x: gate-width - 4px;
+        y: gate-height / 2 - 4px;
+    }
+}
+
+// Input/Output node component
+component IONode {
+    in property <string> label: "IN";
+    in property <length> radius: 25px;
+    in property <color> background-color: #c0c0c0;
+    in property <color> border-color: #404040;
+    in property <bool> is-output: false;
+    
+    width: radius * 2;
+    height: radius * 2;
+    
+    // Main node body
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: background-color;
+        border-color: border-color;
+        border-width: 2px;
+        border-radius: radius;
+        
+        // Node label
+        Text {
+            text: label;
+            color: #000000;
+            font-size: 12px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    
+    // Single connector (right side for input, left side for output)
+    Connector {
+        x: is-output ? -4px : radius * 2 - 4px;
+        y: radius - 4px;
+    }
+}
+
+// Connection line component using Path
+export component ConnectionLine {
+    in property <length> start-x;
+    in property <length> start-y;
+    in property <length> end-x;
+    in property <length> end-y;
+    in property <color> line-color: #000000;
+    in property <length> line-width: 2px;
+    
+    // Position the path to cover the line area
+    x: min(start-x, end-x);
+    y: min(start-y, end-y);
+    width: abs(end-x - start-x);
+    height: abs(end-y - start-y);
+    
+    Path {
+        width: parent.width;
+        height: parent.height;
+        fill: transparent;
+        stroke: line-color;
+        stroke-width: line-width;
+        
+        MoveTo {
+            x: (start-x - parent.x) / 1px;
+            y: (start-y - parent.y) / 1px;
+        }
+        LineTo {
+            x: (end-x - parent.x) / 1px;
+            y: (end-y - parent.y) / 1px;
+        }
+    }
+}
+
+// Node data structure
+export struct NodeData {
+    id: string,
+    node_type: string,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+    label: string,
+}
+
+// Connection data structure
+export struct ConnectionData {
+    id: string,
+    start_x: length,
+    start_y: length,
+    end_x: length,
+    end_y: length,
+}
+
+// Main graph view component
+export component GraphView {
+    in property <length> graph-width: 600px;
+    in property <length> graph-height: 400px;
+    in property <[NodeData]> nodes: [
+        { id: "input_a", node_type: "input", x: 50px, y: 50px, width: 50px, height: 50px, label: "A" },
+        { id: "input_b", node_type: "input", x: 50px, y: 150px, width: 50px, height: 50px, label: "B" },
+        { id: "input_c", node_type: "input", x: 50px, y: 250px, width: 50px, height: 50px, label: "C" },
+        { id: "and_gate", node_type: "and", x: 200px, y: 80px, width: 80px, height: 60px, label: "AND" },
+        { id: "or_gate", node_type: "or", x: 200px, y: 220px, width: 80px, height: 60px, label: "OR" },
+        { id: "not_gate", node_type: "not", x: 400px, y: 150px, width: 80px, height: 60px, label: "NOT" },
+        { id: "output", node_type: "output", x: 550px, y: 175px, width: 50px, height: 50px, label: "OUT" }
+    ];
+    in property <[ConnectionData]> connections: [
+        { id: "c1", start_x: 96px, start_y: 71px, end_x: 200px, end_y: 99px },
+        { id: "c2", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 119px },
+        { id: "c3", start_x: 96px, start_y: 171px, end_x: 200px, end_y: 239px },
+        { id: "c4", start_x: 96px, start_y: 271px, end_x: 200px, end_y: 259px },
+        { id: "c5", start_x: 276px, start_y: 106px, end_x: 400px, end_y: 169px },
+        { id: "c6", start_x: 476px, start_y: 176px, end_x: 550px, end_y: 196px }
+    ];
+    
+    width: graph-width;
+    height: graph-height;
+    
+    // Debug data received from Python
+    init => {
+        debug("GraphView initialized");
+        debug("Nodes array length: " + nodes.length);
+        debug("Connections array length: " + connections.length);
+        
+        if (nodes.length > 0) {
+            debug("First node: " + nodes[0].id + " type: " + nodes[0].node_type);
+        }
+        
+        if (connections.length > 0) {
+            debug("First connection: " + connections[0].id);
+        }
+    }
+    
+    // Background
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #f5f5f5;
+        border-color: #cccccc;
+        border-width: 1px;
+    }
+    
+    // Dynamic nodes rendering
+    for node in nodes: Rectangle {
+        x: node.x;
+        y: node.y;
+        width: node.width;
+        height: node.height;
+        
+        if node.node_type == "input" || node.node_type == "output": Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: #c0c0c0;
+            border-color: #404040;
+            border-width: 2px;
+            border-radius: parent.width / 2;
+            
+            Text {
+                text: node.label;
+                color: #000000;
+                font-size: 12px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            
+            // Connector for input/output nodes
+            Connector {
+                x: node.node_type == "output" ? -4px : parent.width - 4px;
+                y: parent.height / 2 - 4px;
+            }
+        }
+        
+        if node.node_type == "and" || node.node_type == "or" || node.node_type == "not": Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: #e0e0e0;
+            border-color: #404040;
+            border-width: 2px;
+            
+            Text {
+                text: node.node_type == "and" ? "AND" : (node.node_type == "or" ? "OR" : "NOT");
+                color: #000000;
+                font-size: 14px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            
+            // Input connectors for gates
+            if node.node_type == "and" || node.node_type == "or": Connector {
+                x: -4px;
+                y: 15px;
+            }
+            
+            if node.node_type == "and" || node.node_type == "or": Connector {
+                x: -4px;
+                y: 35px;
+            }
+            
+            if node.node_type == "not": Connector {
+                x: -4px;
+                y: 19px;
+            }
+            
+            // Output connector for gates
+            Connector {
+                x: parent.width - 4px;
+                y: parent.height / 2 - 4px;
+            }
+        }
+    }
+    
+    // Dynamic connections rendering
+    for connection in connections: ConnectionLine {
+        start-x: connection.start_x;
+        start-y: connection.start_y;
+        end-x: connection.end_x;
+        end-y: connection.end_y;
+    }
+}
