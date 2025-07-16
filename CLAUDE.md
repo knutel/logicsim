@@ -112,3 +112,6 @@ The graph system uses Python for data management and Slint for rendering:
 - **Python-to-Slint data binding**: Currently uses static data in Slint (Python data structure ready)
 - **Connector positioning**: May need fine-tuning for pixel-perfect alignment
 - **Future enhancement**: Full dynamic data binding from Python to Slint arrays
+
+## Slint Interoperability Notes
+- When assigining to a Slint property, Python lists must be wrapped in slint.ListModel
