@@ -1,0 +1,18 @@
+[project]
+name = "logicsim"
+version = "0.1.0"
+description = "A Python GUI application using Slint UI library"
+authors = [
+    {name = "User", email = "user@example.com"}
+]
+dependencies = [
+    "slint>=1.0.0",
+]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []

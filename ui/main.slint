@@ -1,0 +1,39 @@
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    title: "LogicSim";
+    width: 800px;
+    height: 600px;
+    
+    VerticalBox {
+        alignment: center;
+        spacing: 20px;
+        
+        Text {
+            text: "Welcome to LogicSim";
+            font-size: 24px;
+            horizontal-alignment: center;
+        }
+        
+        Text {
+            text: "A Python GUI application using Slint";
+            font-size: 14px;
+            horizontal-alignment: center;
+        }
+        
+        HorizontalBox {
+            alignment: center;
+            spacing: 10px;
+            
+            Button {
+                text: "Start";
+                width: 100px;
+            }
+            
+            Button {
+                text: "Exit";
+                width: 100px;
+            }
+        }
+    }
+}

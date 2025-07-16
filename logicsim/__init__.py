@@ -1,0 +1,1 @@
+# LogicSim - A Python GUI application using Slint UI library

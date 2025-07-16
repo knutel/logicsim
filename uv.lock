@@ -1,0 +1,58 @@
+version = 1
+revision = 2
+requires-python = ">=3.10"
+resolution-markers = [
+    "python_full_version >= '3.12'",
+    "python_full_version < '3.12'",
+]
+
+[[package]]
+name = "logicsim"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "slint", version = "1.9.2a1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "slint", version = "1.12.1b1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "slint", specifier = ">=1.0.0" }]
+
+[package.metadata.requires-dev]
+dev = []
+
+[[package]]
+name = "slint"
+version = "1.9.2a1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/67/f5277477ddfe5cc9478d563299f61847dfe6ce14023d7a82b7a319208a19/slint-1.9.2a1.tar.gz", hash = "sha256:8a4fe8437f7dd37c3555a08ba9879b0bc83b67dde894143ce9e60e6a9bad3b04", size = 1809577, upload-time = "2025-01-13T10:49:02.45Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/ab/75ffab4dc5ba816530fb70e8e2fd9edfecb73c4e0ae74abf89b6e0309393/slint-1.9.2a1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:496c8f53799e781ffe8da8db89a076fa750151012efe923d6feba077ff1de378", size = 11464541, upload-time = "2025-01-13T10:48:36.543Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/ab/7693aad5be978093a0cc7b0501717d1c2daf637a9490fa70bb2907a63758/slint-1.9.2a1-cp310-abi3-macosx_11_0_x86_64.whl", hash = "sha256:a7a90e644d7bd76e11405914a5ab08baa1f923f6f4760658e4d51b278e1ac270", size = 11958948, upload-time = "2025-01-13T10:48:39.951Z" },
+    { url = "https://files.pythonhosted.org/packages/09/2a/b992ef959acc4d6213a7f632f608cdff6a9254b25125fbe6917557d63e77/slint-1.9.2a1-cp310-abi3-manylinux_2_31_aarch64.whl", hash = "sha256:6af53638b337a7c9720e2eb0a916b0f27537e76c4361764d7c8c2a0df8fc107e", size = 15947395, upload-time = "2025-01-13T10:48:43.812Z" },
+    { url = "https://files.pythonhosted.org/packages/29/e6/1ce6c72ad8daea307b9e4f4b308d3fb08d9c52f6fbeb9cd68b00230a3cb9/slint-1.9.2a1-cp310-abi3-manylinux_2_31_armv7l.whl", hash = "sha256:f575e393ea309a0ef1b080d3bcb3efb5e454cafbf5ba93d0a1cd94043ab47fbc", size = 15687660, upload-time = "2025-01-13T10:48:49.906Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/e9/6b6ae61e33e1468d2958414cc00930c0475e7ab4c7f83294e7e9e69fc214/slint-1.9.2a1-cp310-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:ac298004c22bbfb2b09894c64ece2717af4f3b38194269330089cc10f6bdee9f", size = 16627207, upload-time = "2025-01-13T10:48:54.824Z" },
+    { url = "https://files.pythonhosted.org/packages/91/38/9700ec975fa32cf1767e57b1fe02962fa3fe2d54ea3a474a644612ccf2b8/slint-1.9.2a1-cp310-abi3-win_amd64.whl", hash = "sha256:100693ec2f3d342d04f135a9f073d5686eb2f4f5eaba75c8039e7b2b0cd6f815", size = 12145976, upload-time = "2025-01-13T10:48:58.715Z" },
+]
+
+[[package]]
+name = "slint"
+version = "1.12.1b1"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/f6/e04a2d0b1d40e04a195ed915171517709c01f73f19e1c6045116c9ee589b/slint-1.12.1b1.tar.gz", hash = "sha256:93150ae98986021389682101bb2d3d18a4259733f0c108d5c9c7558b3250d8c7", size = 1906760, upload-time = "2025-06-25T14:38:53.91Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/ea/f3bb6bdfa637eefed64fb7b8061ad8e797b2751c1c24696aaeddbb0ec929/slint-1.12.1b1-cp310-abi3-ios_13_0_arm64_iphoneos.whl", hash = "sha256:c3f4be1635ae46559dfd2c1752fe7d44a0b180bf41fe986157af32c116c6d3e0", size = 8788436, upload-time = "2025-06-25T14:38:30.233Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/a0/33e2cdce2fd3047391f798de3fb8e1a31eeaa3867a7f8b347e4955698b78/slint-1.12.1b1-cp310-abi3-ios_13_0_arm64_iphonesimulator.whl", hash = "sha256:bc06b9a8e8c0688c04aae5b61078c32f6a24706b25a4c9da1fb20308442c31f2", size = 8959135, upload-time = "2025-06-25T14:38:33.493Z" },
+    { url = "https://files.pythonhosted.org/packages/10/2c/61872ae8bc36c74624af91e5be29533c2ff2714615f3383103a1978ae57b/slint-1.12.1b1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:68eae7d7e69b570fb6667e6d6e4186b37e380110c1458e5c8955e85ab14cf81b", size = 11738947, upload-time = "2025-06-25T14:38:36.028Z" },
+    { url = "https://files.pythonhosted.org/packages/45/60/2c03772e903adbb8bc129f1aac3a7702b97962984ecb69b3b6c8a17cbe82/slint-1.12.1b1-cp310-abi3-macosx_11_0_x86_64.whl", hash = "sha256:8a19f19250f67872b0c82d0c658edb091852df847d1547779b480552d7ea9e95", size = 12292282, upload-time = "2025-06-25T14:38:37.995Z" },
+    { url = "https://files.pythonhosted.org/packages/58/ec/fed21cdf33fa251553d41bc26d84d71213e7d6d9ba6e7965ef994ba108e2/slint-1.12.1b1-cp310-abi3-manylinux_2_31_aarch64.whl", hash = "sha256:5153954c7d53e28f3aa56eaca8b306d1481dfac4a099c6b3f6f81a52eda66da2", size = 16111350, upload-time = "2025-06-25T14:38:41.802Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/d7/7378a06b90edc25341bc4b012fae43ea87521af294d65a84ab9319de030f/slint-1.12.1b1-cp310-abi3-manylinux_2_31_armv7l.whl", hash = "sha256:0c64a2ab95e17c12ae775ec21d6314c47bd0cb415ca38cf02da6d06122cde5e2", size = 15864136, upload-time = "2025-06-25T14:38:43.973Z" },
+    { url = "https://files.pythonhosted.org/packages/af/48/e361a02482afbf001cd7082c8a56a11f4b90e92598fc75dcc2c0a58566d8/slint-1.12.1b1-cp310-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:fe7fb24c5991e6ffcf2311bcedf5491d7847ff96b316a60ec35d033553ecf8f0", size = 16741278, upload-time = "2025-06-25T14:38:47.549Z" },
+    { url = "https://files.pythonhosted.org/packages/71/9d/2ebe69d0fb723206f9b22d2be382130a24ccac9d370780d060800e6f0576/slint-1.12.1b1-cp310-abi3-win_amd64.whl", hash = "sha256:17a927bcd4044f54dd43d978b187cfb6b2bbb407af8cdac7300e4a48e1b7f6ab", size = 12232827, upload-time = "2025-06-25T14:38:50.134Z" },
+]
