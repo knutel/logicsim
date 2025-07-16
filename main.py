@@ -79,6 +79,17 @@ def main():
         # Convert to simple dictionaries with proper types
         slint_nodes = []
         for node in graph_data['nodes']:
+            # Convert connector data to Slint format using ListModel
+            slint_connectors = []
+            for connector in node['connectors']:
+                slint_connector = {
+                    "id": str(connector['id']),
+                    "x": float(connector['x']),
+                    "y": float(connector['y']),
+                    "is_input": bool(connector['is_input'])
+                }
+                slint_connectors.append(slint_connector)
+            
             # Create a properly formatted dictionary for Slint struct
             slint_node = {
                 "id": str(node['id']),
@@ -87,7 +98,8 @@ def main():
                 "y": float(node['y']),
                 "width": float(node['width']),
                 "height": float(node['height']),
-                "label": str(node['label'])
+                "label": str(node['label']),
+                "connectors": slint.ListModel(slint_connectors)
             }
             slint_nodes.append(slint_node)
         

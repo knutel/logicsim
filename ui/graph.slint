@@ -16,89 +16,6 @@ export component Connector {
     }
 }
 
-// Logic gate shape component
-component LogicGate {
-    in property <string> gate-type: "AND";
-    in property <length> gate-width: 80px;
-    in property <length> gate-height: 60px;
-    in property <color> background-color: #e0e0e0;
-    in property <color> border-color: #404040;
-    
-    width: gate-width;
-    height: gate-height;
-    
-    // Main gate body
-    Rectangle {
-        width: parent.width;
-        height: parent.height;
-        background: background-color;
-        border-color: border-color;
-        border-width: 2px;
-        
-        // Gate label
-        Text {
-            text: gate-type;
-            color: #000000;
-            font-size: 14px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
-    
-    // Input connectors (left side)
-    Connector {
-        x: -4px;
-        y: 15px;
-    }
-    
-    Connector {
-        x: -4px;
-        y: 35px;
-    }
-    
-    // Output connector (right side)
-    Connector {
-        x: gate-width - 4px;
-        y: gate-height / 2 - 4px;
-    }
-}
-
-// Input/Output node component
-component IONode {
-    in property <string> label: "IN";
-    in property <length> radius: 25px;
-    in property <color> background-color: #c0c0c0;
-    in property <color> border-color: #404040;
-    in property <bool> is-output: false;
-    
-    width: radius * 2;
-    height: radius * 2;
-    
-    // Main node body
-    Rectangle {
-        width: parent.width;
-        height: parent.height;
-        background: background-color;
-        border-color: border-color;
-        border-width: 2px;
-        border-radius: radius;
-        
-        // Node label
-        Text {
-            text: label;
-            color: #000000;
-            font-size: 12px;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-        }
-    }
-    
-    // Single connector (right side for input, left side for output)
-    Connector {
-        x: is-output ? -4px : radius * 2 - 4px;
-        y: radius - 4px;
-    }
-}
 
 // Connection line component using Path
 export component ConnectionLine {
@@ -133,6 +50,14 @@ export component ConnectionLine {
     }
 }
 
+// Connector data structure
+export struct ConnectorData {
+    id: string,
+    x: length,
+    y: length,
+    is_input: bool,
+}
+
 // Node data structure
 export struct NodeData {
     id: string,
@@ -142,6 +67,7 @@ export struct NodeData {
     width: length,
     height: length,
     label: string,
+    connectors: [ConnectorData],
 }
 
 // Connection data structure
@@ -163,20 +89,6 @@ export component GraphView {
     width: graph-width;
     height: graph-height;
     
-    // Debug data received from Python
-    init => {
-        debug("GraphView initialized");
-        debug("Nodes array length: " + nodes.length);
-        debug("Connections array length: " + connections.length);
-        
-        if (nodes.length > 0) {
-            debug("First node: " + nodes[0].id + " type: " + nodes[0].node_type);
-        }
-        
-        if (connections.length > 0) {
-            debug("First connection: " + connections[0].id);
-        }
-    }
     
     // Background
     Rectangle {
@@ -197,7 +109,7 @@ export component GraphView {
         if node.node_type == "input" || node.node_type == "output": Rectangle {
             width: parent.width;
             height: parent.height;
-            background: #c0c0c0;
+            background:rgb(117, 231, 71);
             border-color: #404040;
             border-width: 2px;
             border-radius: parent.width / 2;
@@ -208,12 +120,6 @@ export component GraphView {
                 font-size: 12px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
-            }
-            
-            // Connector for input/output nodes
-            Connector {
-                x: node.node_type == "output" ? -4px : parent.width - 4px;
-                y: parent.height / 2 - 4px;
             }
         }
         
@@ -231,28 +137,12 @@ export component GraphView {
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }
-            
-            // Input connectors for gates
-            if node.node_type == "and" || node.node_type == "or": Connector {
-                x: -4px;
-                y: 15px;
-            }
-            
-            if node.node_type == "and" || node.node_type == "or": Connector {
-                x: -4px;
-                y: 35px;
-            }
-            
-            if node.node_type == "not": Connector {
-                x: -4px;
-                y: 19px;
-            }
-            
-            // Output connector for gates
-            Connector {
-                x: parent.width - 4px;
-                y: parent.height / 2 - 4px;
-            }
+        }
+        
+        // Dynamic connectors rendering using data from Python
+        for connector in node.connectors: Connector {
+            x: connector.x - node.x;
+            y: connector.y - node.y;
         }
     }
     

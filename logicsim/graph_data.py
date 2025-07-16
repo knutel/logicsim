@@ -26,6 +26,10 @@ class Connector:
     x_offset: float  # Offset from node position
     y_offset: float  # Offset from node position
     is_input: bool   # True for input connectors, False for output
+    
+    def get_absolute_position(self, node_x: float, node_y: float) -> tuple[float, float]:
+        """Calculate absolute position given node position"""
+        return node_x + self.x_offset, node_y + self.y_offset
 
 
 @dataclass
@@ -39,6 +43,12 @@ class Node:
     height: float
     label: str
     connectors: List[Connector]
+    
+    @classmethod
+    def create(cls, id: str, node_type: NodeType, x: float, y: float, width: float, height: float, label: str) -> 'Node':
+        """Create a node with auto-generated connectors based on node type"""
+        connectors = create_connectors_for_node_type(node_type, width, height)
+        return cls(id, node_type, x, y, width, height, label, connectors)
 
 
 @dataclass
@@ -49,6 +59,71 @@ class Connection:
     from_connector_id: str
     to_node_id: str
     to_connector_id: str
+
+
+def create_connectors_for_node_type(node_type: NodeType, width: float, height: float) -> List[Connector]:
+    """Create connectors for a node based on its type and dimensions"""
+    connectors = []
+    
+    if node_type == NodeType.INPUT:
+        # Input nodes have one output connector on the right side, center
+        connectors.append(Connector(
+            id="out",
+            x_offset=width - 4,  # 4px from right edge (connector size/2)
+            y_offset=height / 2 - 4,  # Center vertically, adjusted for connector size
+            is_input=False
+        ))
+    
+    elif node_type == NodeType.OUTPUT:
+        # Output nodes have one input connector on the left side, center
+        connectors.append(Connector(
+            id="in",
+            x_offset=-4,  # 4px outside left edge
+            y_offset=height / 2 - 4,  # Center vertically, adjusted for connector size
+            is_input=True
+        ))
+    
+    elif node_type in [NodeType.AND_GATE, NodeType.OR_GATE]:
+        # AND/OR gates have two input connectors on the left and one output on the right
+        connectors.extend([
+            Connector(
+                id="in1",
+                x_offset=-4,  # 4px outside left edge
+                y_offset=15,  # Top input position
+                is_input=True
+            ),
+            Connector(
+                id="in2",
+                x_offset=-4,  # 4px outside left edge
+                y_offset=35,  # Bottom input position
+                is_input=True
+            ),
+            Connector(
+                id="out",
+                x_offset=width - 4,  # 4px from right edge
+                y_offset=height / 2 - 4,  # Center vertically
+                is_input=False
+            )
+        ])
+    
+    elif node_type == NodeType.NOT_GATE:
+        # NOT gates have one input connector on the left and one output on the right
+        connectors.extend([
+            Connector(
+                id="in",
+                x_offset=-4,  # 4px outside left edge
+                y_offset=height / 2 - 4,  # Center vertically
+                is_input=True
+            ),
+            Connector(
+                id="out",
+                x_offset=width - 4,  # 4px from right edge
+                y_offset=height / 2 - 4,  # Center vertically
+                is_input=False
+            )
+        ])
+    
+    return connectors
 
 
 class GraphData:
@@ -82,9 +157,20 @@ class GraphData:
     def to_slint_format(self) -> Dict[str, Any]:
         """Convert graph data to format suitable for Slint"""
         
-        # Convert nodes
+        # Convert nodes with connector absolute positions
         slint_nodes = []
         for node in self.nodes.values():
+            # Calculate absolute positions for all connectors
+            connectors_data = []
+            for connector in node.connectors:
+                abs_x, abs_y = connector.get_absolute_position(node.x, node.y)
+                connectors_data.append({
+                    "id": connector.id,
+                    "x": abs_x,
+                    "y": abs_y,
+                    "is_input": connector.is_input
+                })
+            
             slint_node = {
                 "id": node.id,
                 "node_type": node.node_type.value,
@@ -93,14 +179,7 @@ class GraphData:
                 "width": node.width,
                 "height": node.height,
                 "label": node.label,
-                "connectors": [
-                    {
-                        "id": c.id,
-                        "x_offset": c.x_offset,
-                        "y_offset": c.y_offset,
-                        "is_input": c.is_input
-                    } for c in node.connectors
-                ]
+                "connectors": connectors_data
             }
             slint_nodes.append(slint_node)
         
@@ -129,106 +208,18 @@ def create_demo_graph() -> GraphData:
     """Create a demonstration graph with logic gates"""
     graph = GraphData()
     
-    # Input nodes
-    input_a = Node(
-        id="input_a",
-        node_type=NodeType.INPUT,
-        x=50,
-        y=50,
-        width=50,
-        height=50,
-        label="A",
-        connectors=[
-            Connector(id="out", x_offset=46, y_offset=21, is_input=False)  # Right side, center
-        ]
-    )
+    # Input nodes - using Node.create() with automatic connector generation
+    input_a = Node.create("input_a", NodeType.INPUT, 50, 50, 50, 50, "A")
+    input_b = Node.create("input_b", NodeType.INPUT, 50, 150, 50, 50, "B")
+    input_c = Node.create("input_c", NodeType.INPUT, 50, 250, 50, 50, "C")
     
-    input_b = Node(
-        id="input_b",
-        node_type=NodeType.INPUT,
-        x=50,
-        y=150,
-        width=50,
-        height=50,
-        label="B",
-        connectors=[
-            Connector(id="out", x_offset=46, y_offset=21, is_input=False)  # Right side, center
-        ]
-    )
+    # Logic gates - using Node.create() with automatic connector generation
+    and_gate = Node.create("and_gate", NodeType.AND_GATE, 200, 80, 80, 60, "AND")
+    or_gate = Node.create("or_gate", NodeType.OR_GATE, 200, 220, 80, 60, "OR")
+    not_gate = Node.create("not_gate", NodeType.NOT_GATE, 400, 150, 80, 60, "NOT")
     
-    input_c = Node(
-        id="input_c",
-        node_type=NodeType.INPUT,
-        x=50,
-        y=250,
-        width=50,
-        height=50,
-        label="C",
-        connectors=[
-            Connector(id="out", x_offset=46, y_offset=21, is_input=False)  # Right side, center
-        ]
-    )
-    
-    # AND gate
-    and_gate = Node(
-        id="and_gate",
-        node_type=NodeType.AND_GATE,
-        x=200,
-        y=80,
-        width=80,
-        height=60,
-        label="AND",
-        connectors=[
-            Connector(id="in1", x_offset=0, y_offset=19, is_input=True),   # Left side, top
-            Connector(id="in2", x_offset=0, y_offset=39, is_input=True),   # Left side, bottom
-            Connector(id="out", x_offset=76, y_offset=26, is_input=False)  # Right side, center
-        ]
-    )
-    
-    # OR gate
-    or_gate = Node(
-        id="or_gate",
-        node_type=NodeType.OR_GATE,
-        x=200,
-        y=220,
-        width=80,
-        height=60,
-        label="OR",
-        connectors=[
-            Connector(id="in1", x_offset=0, y_offset=19, is_input=True),   # Left side, top
-            Connector(id="in2", x_offset=0, y_offset=39, is_input=True),   # Left side, bottom
-            Connector(id="out", x_offset=76, y_offset=26, is_input=False)  # Right side, center
-        ]
-    )
-    
-    # NOT gate
-    not_gate = Node(
-        id="not_gate",
-        node_type=NodeType.NOT_GATE,
-        x=400,
-        y=150,
-        width=80,
-        height=60,
-        label="NOT",
-        connectors=[
-            Connector(id="in", x_offset=0, y_offset=19, is_input=True),    # Left side
-            Connector(id="out", x_offset=76, y_offset=26, is_input=False)  # Right side
-        ]
-    )
-    
-    # Output node
-    output_node = Node(
-        id="output",
-        node_type=NodeType.OUTPUT,
-        x=550,
-        y=175,
-        width=50,
-        height=50,
-        label="OUT",
-        connectors=[
-            Connector(id="in", x_offset=0, y_offset=21, is_input=True)     # Left side, center
-        ]
-    )
+    # Output node - using Node.create() with automatic connector generation
+    output_node = Node.create("output", NodeType.OUTPUT, 550, 175, 50, 50, "OUT")
     
     # Add nodes to graph
     graph.add_node(input_a)

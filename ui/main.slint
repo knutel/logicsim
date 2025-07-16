@@ -10,12 +10,6 @@ export component MainWindow inherits Window {
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     
-    // Debug data received from Python
-    init => {
-        debug("MainWindow initialized");
-        debug("MainWindow nodes array length: " + nodes.length);
-        debug("MainWindow connections array length: " + connections.length);
-    }
     
     VerticalBox {
         spacing: 10px;
