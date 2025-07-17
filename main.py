@@ -97,12 +97,15 @@ def main():
         main_window.connections = slint.ListModel(slint_connections)
         main_window.selected_nodes = slint.ListModel([str(node_id) for node_id in graph_data['selected_nodes']])
     
-    def handle_graph_click(x, y):
-        """Handle mouse click on graph area"""
+    def handle_graph_pointer_event(kind, x, y):
+        """Handle pointer event on graph area"""
         if graph is None:
             return
             
-        logger.debug(f"Graph clicked at ({x}, {y})")
+        logger.debug(f"Graph pointer event at ({x}, {y}) - kind: {kind}")
+        
+        # The filtering for PointerEventKind.down is already done in the Slint side
+        # so we only receive relevant events here (kind should be "down")
         
         # Let Python handle the click logic
         selection_changed = graph.handle_mouse_click(x, y)
@@ -141,8 +144,8 @@ def main():
         graph = create_demo_graph()
         graph_data = graph.to_slint_format()
         
-        # Connect the click callback
-        main_window.graph_clicked = handle_graph_click
+        # Connect the pointer event callback
+        main_window.graph_pointer_event = handle_graph_pointer_event
         
         logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
         

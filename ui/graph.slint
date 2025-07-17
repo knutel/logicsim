@@ -90,7 +90,7 @@ export component GraphView {
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
     
-    callback clicked(float, float);
+    callback pointer-event(string, float, float);
     
     width: graph-width;
     height: graph-height;
@@ -100,8 +100,10 @@ export component GraphView {
         width: parent.width;
         height: parent.height;
         
-        clicked => {
-            root.clicked(self.mouse-x / 1px, self.mouse-y / 1px);
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                root.pointer-event("down", self.mouse-x / 1px, self.mouse-y / 1px);
+            }
         }
     }
     

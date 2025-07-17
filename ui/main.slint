@@ -11,8 +11,8 @@ export component MainWindow inherits Window {
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
     
-    // Callback for handling graph clicks
-    callback graph-clicked(float, float);
+    // Callback for handling graph pointer events
+    callback graph-pointer-event(string, float, float);
     
     
     VerticalBox {
@@ -40,8 +40,8 @@ export component MainWindow inherits Window {
             connections: root.connections;
             selected-nodes: root.selected-nodes;
             
-            clicked(x, y) => {
-                root.graph-clicked(x, y);
+            pointer-event(kind, x, y) => {
+                root.graph-pointer-event(kind, x, y);
             }
         }
         
