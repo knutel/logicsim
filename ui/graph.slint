@@ -69,6 +69,7 @@ export struct NodeData {
     width: length,
     height: length,
     label: string,
+    color: string,
     connectors: [ConnectorData],
 }
 
@@ -101,41 +102,27 @@ export component GraphView {
         border-width: 1px;
     }
     
-    // Dynamic nodes rendering
+    // Dynamic nodes rendering - unified rectangle rendering for all node types
     for node in nodes: Rectangle {
         x: node.x;
         y: node.y;
         width: node.width;
         height: node.height;
         
-        if node.node_type == "input" || node.node_type == "output": Rectangle {
+        // Single rectangle rendering for all node types
+        Rectangle {
             width: parent.width;
             height: parent.height;
-            background:rgb(117, 231, 71);
+            background: node.node_type == "input" ? rgb(144, 238, 144) : 
+                       node.node_type == "output" ? rgb(255, 182, 193) : 
+                       rgb(224, 224, 224);
             border-color: #404040;
             border-width: 2px;
-            border-radius: parent.width / 2;
             
             Text {
                 text: node.label;
                 color: #000000;
                 font-size: 12px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-        
-        if node.node_type == "and" || node.node_type == "or" || node.node_type == "not": Rectangle {
-            width: parent.width;
-            height: parent.height;
-            background: #e0e0e0;
-            border-color: #404040;
-            border-width: 2px;
-            
-            Text {
-                text: node.node_type == "and" ? "AND" : (node.node_type == "or" ? "OR" : "NOT");
-                color: #000000;
-                font-size: 14px;
                 horizontal-alignment: center;
                 vertical-alignment: center;
             }

@@ -7,12 +7,14 @@ from unittest.mock import patch, MagicMock
 import logging
 
 from logicsim.graph_data import (
-    NodeType,
+    ConnectorDefinition,
+    NodeDefinition,
+    NodeDefinitionRegistry,
+    NODE_REGISTRY,
     Connector,
     Node,
     Connection,
     GraphData,
-    create_connectors_for_node_type,
     create_demo_graph
 )
 
@@ -60,6 +62,167 @@ class TestConnector:
         assert abs_y == 50.0
 
 
+class TestConnectorDefinition:
+    """Test cases for the ConnectorDefinition class"""
+    
+    def test_connector_definition_creation(self):
+        """Test basic connector definition creation"""
+        conn_def = ConnectorDefinition(
+            id="test_conn",
+            x_offset_ratio=0.5,
+            y_offset_ratio=0.25,
+            is_input=True
+        )
+        
+        assert conn_def.id == "test_conn"
+        assert conn_def.x_offset_ratio == 0.5
+        assert conn_def.y_offset_ratio == 0.25
+        assert conn_def.is_input == True
+    
+    def test_create_connector(self):
+        """Test creating a connector from definition"""
+        conn_def = ConnectorDefinition("out", 1.0, 0.5, False)
+        
+        # Test with 80x60 dimensions
+        connector = conn_def.create_connector(80.0, 60.0)
+        
+        assert connector.id == "out"
+        assert connector.x_offset == 76.0  # 1.0 * 80 - 4
+        assert connector.y_offset == 26.0  # 0.5 * 60 - 4
+        assert connector.is_input == False
+    
+    def test_create_connector_different_dimensions(self):
+        """Test connector creation with different dimensions"""
+        conn_def = ConnectorDefinition("in", 0.0, 0.5, True)
+        
+        # Test with 50x50 dimensions
+        connector = conn_def.create_connector(50.0, 50.0)
+        
+        assert connector.id == "in"
+        assert connector.x_offset == -4.0  # 0.0 * 50 - 4
+        assert connector.y_offset == 21.0  # 0.5 * 50 - 4
+        assert connector.is_input == True
+
+
+class TestNodeDefinition:
+    """Test cases for the NodeDefinition class"""
+    
+    def test_node_definition_creation(self):
+        """Test basic node definition creation"""
+        connectors = [
+            ConnectorDefinition("in", 0.0, 0.5, True),
+            ConnectorDefinition("out", 1.0, 0.5, False)
+        ]
+        
+        node_def = NodeDefinition(
+            name="test_node",
+            label="TEST",
+            default_width=100.0,
+            default_height=80.0,
+            color="#FF0000",
+            connectors=connectors
+        )
+        
+        assert node_def.name == "test_node"
+        assert node_def.label == "TEST"
+        assert node_def.default_width == 100.0
+        assert node_def.default_height == 80.0
+        assert node_def.color == "#FF0000"
+        assert len(node_def.connectors) == 2
+        assert node_def.connectors[0].id == "in"
+        assert node_def.connectors[1].id == "out"
+
+
+class TestNodeDefinitionRegistry:
+    """Test cases for the NodeDefinitionRegistry class"""
+    
+    def test_registry_initialization(self):
+        """Test that registry initializes with standard definitions"""
+        registry = NodeDefinitionRegistry()
+        
+        expected_types = ["input", "output", "and", "or", "not"]
+        for node_type in expected_types:
+            assert node_type in registry.definitions
+            assert isinstance(registry.definitions[node_type], NodeDefinition)
+    
+    def test_get_definition(self):
+        """Test getting node definitions by name"""
+        registry = NodeDefinitionRegistry()
+        
+        input_def = registry.get_definition("input")
+        assert input_def.name == "input"
+        assert input_def.label == "INPUT"
+        assert len(input_def.connectors) == 1
+        assert input_def.connectors[0].id == "out"
+        assert input_def.connectors[0].is_input == False
+    
+    def test_get_definition_unknown_type(self):
+        """Test error handling for unknown node types"""
+        registry = NodeDefinitionRegistry()
+        
+        with pytest.raises(ValueError, match="Unknown node type: unknown"):
+            registry.get_definition("unknown")
+    
+    def test_list_definitions(self):
+        """Test listing all available definitions"""
+        registry = NodeDefinitionRegistry()
+        
+        definitions = registry.list_definitions()
+        expected_types = ["input", "output", "and", "or", "not"]
+        
+        for node_type in expected_types:
+            assert node_type in definitions
+    
+    def test_add_definition(self):
+        """Test adding custom node definitions"""
+        registry = NodeDefinitionRegistry()
+        
+        custom_def = NodeDefinition(
+            name="custom",
+            label="CUSTOM",
+            default_width=60.0,
+            default_height=40.0,
+            color="#0000FF",
+            connectors=[ConnectorDefinition("test", 0.5, 0.5, True)]
+        )
+        
+        registry.add_definition(custom_def)
+        
+        assert "custom" in registry.definitions
+        retrieved_def = registry.get_definition("custom")
+        assert retrieved_def.name == "custom"
+        assert retrieved_def.label == "CUSTOM"
+        assert retrieved_def.color == "#0000FF"
+    
+    @pytest.mark.parametrize("node_type,expected_connector_count", [
+        ("input", 1),
+        ("output", 1),
+        ("and", 3),
+        ("or", 3),
+        ("not", 2)
+    ])
+    def test_standard_node_connector_counts(self, node_type, expected_connector_count):
+        """Test that standard node types have correct connector counts"""
+        registry = NodeDefinitionRegistry()
+        definition = registry.get_definition(node_type)
+        
+        assert len(definition.connectors) == expected_connector_count
+    
+    @pytest.mark.parametrize("node_type,expected_color", [
+        ("input", "rgb(144, 238, 144)"),
+        ("output", "rgb(255, 182, 193)"),
+        ("and", "rgb(224, 224, 224)"),
+        ("or", "rgb(224, 224, 224)"),
+        ("not", "rgb(224, 224, 224)")
+    ])
+    def test_standard_node_colors(self, node_type, expected_color):
+        """Test that standard node types have correct colors"""
+        registry = NodeDefinitionRegistry()
+        definition = registry.get_definition(node_type)
+        
+        assert definition.color == expected_color
+
+
 class TestNode:
     """Test cases for the Node class"""
     
@@ -72,113 +235,88 @@ class TestNode:
         
         node = Node(
             id="test_node",
-            node_type=NodeType.AND_GATE,
+            node_type="and",
             x=100.0,
             y=200.0,
             width=80.0,
             height=60.0,
             label="TEST",
+            color="#E0E0E0",
             connectors=connectors
         )
         
         assert node.id == "test_node"
-        assert node.node_type == NodeType.AND_GATE
+        assert node.node_type == "and"
         assert node.x == 100.0
         assert node.y == 200.0
         assert node.width == 80.0
         assert node.height == 60.0
         assert node.label == "TEST"
+        assert node.color == "#E0E0E0"
         assert len(node.connectors) == 2
         assert node.connectors[0].id == "in1"
         assert node.connectors[1].id == "out"
     
-    def test_node_create_input(self):
-        """Test Node.create() for input nodes"""
-        node = Node.create("input1", NodeType.INPUT, 50.0, 50.0, 50.0, 50.0, "A")
+    @pytest.mark.parametrize("node_type,expected_label,expected_color", [
+        ("input", "INPUT", "rgb(144, 238, 144)"),
+        ("output", "OUTPUT", "rgb(255, 182, 193)"),
+        ("and", "AND", "rgb(224, 224, 224)"),
+        ("or", "OR", "rgb(224, 224, 224)"),
+        ("not", "NOT", "rgb(224, 224, 224)")
+    ])
+    def test_node_create_with_defaults(self, node_type, expected_label, expected_color):
+        """Test Node.create() with default values from definition"""
+        definition = NODE_REGISTRY.get_definition(node_type)
+        node = Node.create(f"{node_type}_1", definition, 100.0, 200.0)
         
-        assert node.id == "input1"
-        assert node.node_type == NodeType.INPUT
-        assert node.label == "A"
-        assert len(node.connectors) == 1
-        assert node.connectors[0].id == "out"
-        assert node.connectors[0].is_input == False
-        assert node.connectors[0].x_offset == 46.0  # 50 - 4
-        assert node.connectors[0].y_offset == 21.0  # 50/2 - 4
+        assert node.id == f"{node_type}_1"
+        assert node.node_type == node_type
+        assert node.x == 100.0
+        assert node.y == 200.0
+        assert node.width == definition.default_width
+        assert node.height == definition.default_height
+        assert node.label == expected_label
+        assert node.color == expected_color
+        assert len(node.connectors) == len(definition.connectors)
     
-    def test_node_create_output(self):
-        """Test Node.create() for output nodes"""
-        node = Node.create("output1", NodeType.OUTPUT, 550.0, 175.0, 50.0, 50.0, "OUT")
+    def test_node_create_with_custom_values(self):
+        """Test Node.create() with custom values overriding defaults"""
+        definition = NODE_REGISTRY.get_definition("input")
+        node = Node.create("custom_input", definition, 50.0, 50.0, 100.0, 80.0, "CUSTOM")
         
-        assert node.id == "output1"
-        assert node.node_type == NodeType.OUTPUT
-        assert node.label == "OUT"
-        assert len(node.connectors) == 1
-        assert node.connectors[0].id == "in"
-        assert node.connectors[0].is_input == True
-        assert node.connectors[0].x_offset == -4.0
-        assert node.connectors[0].y_offset == 21.0  # 50/2 - 4
+        assert node.id == "custom_input"
+        assert node.node_type == "input"
+        assert node.x == 50.0
+        assert node.y == 50.0
+        assert node.width == 100.0  # Custom width
+        assert node.height == 80.0  # Custom height
+        assert node.label == "CUSTOM"  # Custom label
+        assert node.color == "rgb(144, 238, 144)"  # From definition
     
-    def test_node_create_and_gate(self):
-        """Test Node.create() for AND gates"""
-        node = Node.create("and1", NodeType.AND_GATE, 200.0, 80.0, 80.0, 60.0, "AND")
+    def test_node_create_connector_positioning(self):
+        """Test that connectors are positioned correctly based on node dimensions"""
+        definition = NODE_REGISTRY.get_definition("and")
+        node = Node.create("and_test", definition, 0.0, 0.0, 100.0, 80.0)
         
-        assert node.id == "and1"
-        assert node.node_type == NodeType.AND_GATE
-        assert node.label == "AND"
-        assert len(node.connectors) == 3
-        
-        # Check input connectors
+        # Check that connectors are created with correct positions
         in1 = next(c for c in node.connectors if c.id == "in1")
         in2 = next(c for c in node.connectors if c.id == "in2")
         out = next(c for c in node.connectors if c.id == "out")
         
-        assert in1.is_input == True
+        # in1: 0.0 * 100 - 4 = -4, 0.25 * 80 - 4 = 16
         assert in1.x_offset == -4.0
-        assert in1.y_offset == 15.0
+        assert in1.y_offset == 16.0
+        assert in1.is_input == True
         
-        assert in2.is_input == True
+        # in2: 0.0 * 100 - 4 = -4, 0.75 * 80 - 4 = 56
         assert in2.x_offset == -4.0
-        assert in2.y_offset == 35.0
+        assert in2.y_offset == 56.0
+        assert in2.is_input == True
         
+        # out: 1.0 * 100 - 4 = 96, 0.5 * 80 - 4 = 36
+        assert out.x_offset == 96.0
+        assert out.y_offset == 36.0
         assert out.is_input == False
-        assert out.x_offset == 76.0  # 80 - 4
-        assert out.y_offset == 26.0  # 60/2 - 4
-    
-    def test_node_create_or_gate(self):
-        """Test Node.create() for OR gates"""
-        node = Node.create("or1", NodeType.OR_GATE, 200.0, 220.0, 80.0, 60.0, "OR")
-        
-        assert node.id == "or1"
-        assert node.node_type == NodeType.OR_GATE
-        assert node.label == "OR"
-        assert len(node.connectors) == 3
-        
-        # Should have same connector structure as AND gate
-        connector_ids = [c.id for c in node.connectors]
-        assert "in1" in connector_ids
-        assert "in2" in connector_ids
-        assert "out" in connector_ids
-    
-    def test_node_create_not_gate(self):
-        """Test Node.create() for NOT gates"""
-        node = Node.create("not1", NodeType.NOT_GATE, 400.0, 150.0, 80.0, 60.0, "NOT")
-        
-        assert node.id == "not1"
-        assert node.node_type == NodeType.NOT_GATE
-        assert node.label == "NOT"
-        assert len(node.connectors) == 2
-        
-        # Check input and output connectors
-        in_conn = next(c for c in node.connectors if c.id == "in")
-        out_conn = next(c for c in node.connectors if c.id == "out")
-        
-        assert in_conn.is_input == True
-        assert in_conn.x_offset == -4.0
-        assert in_conn.y_offset == 26.0  # 60/2 - 4
-        
-        assert out_conn.is_input == False
-        assert out_conn.x_offset == 76.0  # 80 - 4
-        assert out_conn.y_offset == 26.0  # 60/2 - 4
 
 
 class TestConnection:
@@ -201,100 +339,6 @@ class TestConnection:
         assert connection.to_connector_id == "in"
 
 
-class TestCreateConnectorsForNodeType:
-    """Test cases for create_connectors_for_node_type function"""
-    
-    def test_input_node_connectors(self):
-        """Test connector creation for input nodes"""
-        connectors = create_connectors_for_node_type(NodeType.INPUT, 50.0, 50.0)
-        
-        assert len(connectors) == 1
-        connector = connectors[0]
-        assert connector.id == "out"
-        assert connector.is_input == False
-        assert connector.x_offset == 46.0  # 50 - 4
-        assert connector.y_offset == 21.0  # 50/2 - 4
-    
-    def test_output_node_connectors(self):
-        """Test connector creation for output nodes"""
-        connectors = create_connectors_for_node_type(NodeType.OUTPUT, 50.0, 50.0)
-        
-        assert len(connectors) == 1
-        connector = connectors[0]
-        assert connector.id == "in"
-        assert connector.is_input == True
-        assert connector.x_offset == -4.0
-        assert connector.y_offset == 21.0  # 50/2 - 4
-    
-    @pytest.mark.parametrize("gate_type", [NodeType.AND_GATE, NodeType.OR_GATE])
-    def test_two_input_gate_connectors(self, gate_type):
-        """Test connector creation for AND/OR gates"""
-        connectors = create_connectors_for_node_type(gate_type, 80.0, 60.0)
-        
-        assert len(connectors) == 3
-        
-        # Check that all expected connector IDs are present
-        connector_ids = [c.id for c in connectors]
-        assert "in1" in connector_ids
-        assert "in2" in connector_ids
-        assert "out" in connector_ids
-        
-        # Check input connectors
-        in1 = next(c for c in connectors if c.id == "in1")
-        in2 = next(c for c in connectors if c.id == "in2")
-        out = next(c for c in connectors if c.id == "out")
-        
-        assert in1.is_input == True
-        assert in1.x_offset == -4.0
-        assert in1.y_offset == 15.0
-        
-        assert in2.is_input == True
-        assert in2.x_offset == -4.0
-        assert in2.y_offset == 35.0
-        
-        assert out.is_input == False
-        assert out.x_offset == 76.0  # 80 - 4
-        assert out.y_offset == 26.0  # 60/2 - 4
-    
-    def test_not_gate_connectors(self):
-        """Test connector creation for NOT gates"""
-        connectors = create_connectors_for_node_type(NodeType.NOT_GATE, 80.0, 60.0)
-        
-        assert len(connectors) == 2
-        
-        # Check that all expected connector IDs are present
-        connector_ids = [c.id for c in connectors]
-        assert "in" in connector_ids
-        assert "out" in connector_ids
-        
-        # Check input and output connectors
-        in_conn = next(c for c in connectors if c.id == "in")
-        out_conn = next(c for c in connectors if c.id == "out")
-        
-        assert in_conn.is_input == True
-        assert in_conn.x_offset == -4.0
-        assert in_conn.y_offset == 26.0  # 60/2 - 4
-        
-        assert out_conn.is_input == False
-        assert out_conn.x_offset == 76.0  # 80 - 4
-        assert out_conn.y_offset == 26.0  # 60/2 - 4
-    
-    def test_different_dimensions(self):
-        """Test connector creation with different node dimensions"""
-        # Test with larger dimensions
-        connectors = create_connectors_for_node_type(NodeType.INPUT, 100.0, 80.0)
-        
-        assert len(connectors) == 1
-        connector = connectors[0]
-        assert connector.x_offset == 96.0  # 100 - 4
-        assert connector.y_offset == 36.0  # 80/2 - 4
-    
-    def test_empty_connectors_for_unknown_type(self):
-        """Test that unknown node types return empty connector list"""
-        # This would be an edge case if we had more node types in the future
-        connectors = create_connectors_for_node_type(NodeType.INPUT, 50.0, 50.0)
-        # We know INPUT should return 1 connector, this test just ensures the function works
-        assert len(connectors) == 1
 
 
 class TestGraphData:
@@ -304,10 +348,10 @@ class TestGraphData:
         """Set up test fixtures"""
         self.graph = GraphData()
         
-        # Create test nodes
-        self.input_node = Node.create("input1", NodeType.INPUT, 50.0, 50.0, 50.0, 50.0, "A")
-        self.and_gate = Node.create("and1", NodeType.AND_GATE, 200.0, 80.0, 80.0, 60.0, "AND")
-        self.output_node = Node.create("output1", NodeType.OUTPUT, 350.0, 90.0, 50.0, 50.0, "OUT")
+        # Create test nodes using new system
+        self.input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50.0, 50.0, label="A")
+        self.and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200.0, 80.0, label="AND")
+        self.output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350.0, 90.0, label="OUT")
         
         # Create test connection
         self.connection = Connection("conn1", "input1", "out", "and1", "in1")
@@ -413,6 +457,7 @@ class TestGraphData:
         assert input_node_data["width"] == 50.0
         assert input_node_data["height"] == 50.0
         assert input_node_data["label"] == "A"
+        assert input_node_data["color"] == "rgb(144, 238, 144)"
         assert len(input_node_data["connectors"]) == 1
         
         # Check connector data
@@ -439,7 +484,7 @@ class TestGraphData:
         assert conn_data["start_x"] == 99.0  # 50 + 46 + 3
         assert conn_data["start_y"] == 74.0  # 50 + 21 + 3
         assert conn_data["end_x"] == 199.0   # 200 + (-4) + 3
-        assert conn_data["end_y"] == 98.0    # 80 + 15 + 3
+        assert conn_data["end_y"] == 94.0    # 80 + 11 + 3 (0.25 * 60 - 4 = 11)
 
 
 class TestCreateDemoGraph:
@@ -470,14 +515,14 @@ class TestCreateDemoGraph:
         """Test that demo graph nodes have correct types"""
         graph = create_demo_graph()
         
-        assert graph.nodes["input_a"].node_type == NodeType.INPUT
-        assert graph.nodes["input_b"].node_type == NodeType.INPUT
-        assert graph.nodes["input_c"].node_type == NodeType.INPUT
-        assert graph.nodes["and_gate"].node_type == NodeType.AND_GATE
-        assert graph.nodes["or_gate"].node_type == NodeType.OR_GATE
-        assert graph.nodes["not_gate"].node_type == NodeType.NOT_GATE
-        assert graph.nodes["output_a"].node_type == NodeType.OUTPUT
-        assert graph.nodes["output_b"].node_type == NodeType.OUTPUT
+        assert graph.nodes["input_a"].node_type == "input"
+        assert graph.nodes["input_b"].node_type == "input"
+        assert graph.nodes["input_c"].node_type == "input"
+        assert graph.nodes["and_gate"].node_type == "and"
+        assert graph.nodes["or_gate"].node_type == "or"
+        assert graph.nodes["not_gate"].node_type == "not"
+        assert graph.nodes["output_a"].node_type == "output"
+        assert graph.nodes["output_b"].node_type == "output"
     
     def test_demo_graph_connections(self):
         """Test that demo graph contains expected connections"""

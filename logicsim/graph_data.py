@@ -4,19 +4,35 @@ Graph data structures and management for LogicSim
 
 from dataclasses import dataclass
 from typing import List, Dict, Any
-from enum import Enum
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-class NodeType(Enum):
-    """Types of nodes in the graph"""
-    INPUT = "input"
-    OUTPUT = "output"
-    AND_GATE = "and"
-    OR_GATE = "or"
-    NOT_GATE = "not"
+@dataclass
+class ConnectorDefinition:
+    """Defines a connector template for a node type"""
+    id: str
+    x_offset_ratio: float  # 0.0 to 1.0, relative to node width
+    y_offset_ratio: float  # 0.0 to 1.0, relative to node height
+    is_input: bool
+    
+    def create_connector(self, width: float, height: float) -> 'Connector':
+        """Create a Connector instance from this definition"""
+        x_offset = self.x_offset_ratio * width - 4  # -4 for connector centering
+        y_offset = self.y_offset_ratio * height - 4  # -4 for connector centering
+        return Connector(self.id, x_offset, y_offset, self.is_input)
+
+
+@dataclass
+class NodeDefinition:
+    """Defines a node type with its properties and connectors"""
+    name: str
+    label: str
+    default_width: float
+    default_height: float
+    color: str
+    connectors: List[ConnectorDefinition]
 
 
 @dataclass
@@ -36,19 +52,30 @@ class Connector:
 class Node:
     """Represents a node in the graph"""
     id: str
-    node_type: NodeType
+    node_type: str
     x: float
     y: float
     width: float
     height: float
     label: str
+    color: str
     connectors: List[Connector]
     
     @classmethod
-    def create(cls, id: str, node_type: NodeType, x: float, y: float, width: float, height: float, label: str) -> 'Node':
-        """Create a node with auto-generated connectors based on node type"""
-        connectors = create_connectors_for_node_type(node_type, width, height)
-        return cls(id, node_type, x, y, width, height, label, connectors)
+    def create(cls, id: str, node_definition: NodeDefinition, x: float, y: float, width: float = None, height: float = None, label: str = None) -> 'Node':
+        """Create a node with auto-generated connectors based on node definition"""
+        # Use defaults from definition if not provided
+        if width is None:
+            width = node_definition.default_width
+        if height is None:
+            height = node_definition.default_height
+        if label is None:
+            label = node_definition.label
+        
+        # Generate connectors from definition
+        connectors = [conn_def.create_connector(width, height) for conn_def in node_definition.connectors]
+        
+        return cls(id, node_definition.name, x, y, width, height, label, node_definition.color, connectors)
 
 
 @dataclass
@@ -61,69 +88,97 @@ class Connection:
     to_connector_id: str
 
 
-def create_connectors_for_node_type(node_type: NodeType, width: float, height: float) -> List[Connector]:
-    """Create connectors for a node based on its type and dimensions"""
-    connectors = []
+class NodeDefinitionRegistry:
+    """Registry for managing available node definitions"""
     
-    if node_type == NodeType.INPUT:
-        # Input nodes have one output connector on the right side, center
-        connectors.append(Connector(
-            id="out",
-            x_offset=width - 4,  # 4px from right edge (connector size/2)
-            y_offset=height / 2 - 4,  # Center vertically, adjusted for connector size
-            is_input=False
-        ))
+    def __init__(self):
+        self.definitions: Dict[str, NodeDefinition] = {}
+        self._create_standard_definitions()
     
-    elif node_type == NodeType.OUTPUT:
-        # Output nodes have one input connector on the left side, center
-        connectors.append(Connector(
-            id="in",
-            x_offset=-4,  # 4px outside left edge
-            y_offset=height / 2 - 4,  # Center vertically, adjusted for connector size
-            is_input=True
-        ))
+    def _create_standard_definitions(self):
+        """Create standard node type definitions"""
+        # Input node: single output connector on right, center
+        self.definitions["input"] = NodeDefinition(
+            name="input",
+            label="INPUT",
+            default_width=50.0,
+            default_height=50.0,
+            color="rgb(144, 238, 144)",  # Light green
+            connectors=[
+                ConnectorDefinition("out", 1.0, 0.5, False)  # Right side, center
+            ]
+        )
+        
+        # Output node: single input connector on left, center
+        self.definitions["output"] = NodeDefinition(
+            name="output",
+            label="OUTPUT",
+            default_width=50.0,
+            default_height=50.0,
+            color="rgb(255, 182, 193)",  # Light pink
+            connectors=[
+                ConnectorDefinition("in", 0.0, 0.5, True)  # Left side, center
+            ]
+        )
+        
+        # AND gate: two inputs on left, one output on right
+        self.definitions["and"] = NodeDefinition(
+            name="and",
+            label="AND",
+            default_width=80.0,
+            default_height=60.0,
+            color="rgb(224, 224, 224)",  # Light gray
+            connectors=[
+                ConnectorDefinition("in1", 0.0, 0.25, True),  # Left side, upper
+                ConnectorDefinition("in2", 0.0, 0.75, True),  # Left side, lower
+                ConnectorDefinition("out", 1.0, 0.5, False)   # Right side, center
+            ]
+        )
+        
+        # OR gate: two inputs on left, one output on right
+        self.definitions["or"] = NodeDefinition(
+            name="or",
+            label="OR",
+            default_width=80.0,
+            default_height=60.0,
+            color="rgb(224, 224, 224)",  # Light gray
+            connectors=[
+                ConnectorDefinition("in1", 0.0, 0.25, True),  # Left side, upper
+                ConnectorDefinition("in2", 0.0, 0.75, True),  # Left side, lower
+                ConnectorDefinition("out", 1.0, 0.5, False)   # Right side, center
+            ]
+        )
+        
+        # NOT gate: one input on left, one output on right
+        self.definitions["not"] = NodeDefinition(
+            name="not",
+            label="NOT",
+            default_width=80.0,
+            default_height=60.0,
+            color="rgb(224, 224, 224)",  # Light gray
+            connectors=[
+                ConnectorDefinition("in", 0.0, 0.5, True),   # Left side, center
+                ConnectorDefinition("out", 1.0, 0.5, False)  # Right side, center
+            ]
+        )
     
-    elif node_type in [NodeType.AND_GATE, NodeType.OR_GATE]:
-        # AND/OR gates have two input connectors on the left and one output on the right
-        connectors.extend([
-            Connector(
-                id="in1",
-                x_offset=-4,  # 4px outside left edge
-                y_offset=15,  # Top input position
-                is_input=True
-            ),
-            Connector(
-                id="in2",
-                x_offset=-4,  # 4px outside left edge
-                y_offset=35,  # Bottom input position
-                is_input=True
-            ),
-            Connector(
-                id="out",
-                x_offset=width - 4,  # 4px from right edge
-                y_offset=height / 2 - 4,  # Center vertically
-                is_input=False
-            )
-        ])
+    def get_definition(self, name: str) -> NodeDefinition:
+        """Get a node definition by name"""
+        if name not in self.definitions:
+            raise ValueError(f"Unknown node type: {name}")
+        return self.definitions[name]
     
-    elif node_type == NodeType.NOT_GATE:
-        # NOT gates have one input connector on the left and one output on the right
-        connectors.extend([
-            Connector(
-                id="in",
-                x_offset=-4,  # 4px outside left edge
-                y_offset=height / 2 - 4,  # Center vertically
-                is_input=True
-            ),
-            Connector(
-                id="out",
-                x_offset=width - 4,  # 4px from right edge
-                y_offset=height / 2 - 4,  # Center vertically
-                is_input=False
-            )
-        ])
+    def list_definitions(self) -> List[str]:
+        """List all available node definition names"""
+        return list(self.definitions.keys())
     
-    return connectors
+    def add_definition(self, definition: NodeDefinition):
+        """Add a custom node definition"""
+        self.definitions[definition.name] = definition
+
+
+# Global registry instance
+NODE_REGISTRY = NodeDefinitionRegistry()
 
 
 class GraphData:
@@ -137,7 +192,7 @@ class GraphData:
     def add_node(self, node: Node) -> None:
         """Add a node to the graph"""
         self.nodes[node.id] = node
-        self.logger.debug(f"Added node: {node.id} ({node.node_type.value})")
+        self.logger.debug(f"Added node: {node.id} ({node.node_type})")
     
     def add_connection(self, connection: Connection) -> None:
         """Add a connection to the graph"""
@@ -173,12 +228,13 @@ class GraphData:
             
             slint_node = {
                 "id": node.id,
-                "node_type": node.node_type.value,
+                "node_type": node.node_type,
                 "x": node.x,
                 "y": node.y,
                 "width": node.width,
                 "height": node.height,
                 "label": node.label,
+                "color": node.color,
                 "connectors": connectors_data
             }
             slint_nodes.append(slint_node)
@@ -209,18 +265,18 @@ def create_demo_graph() -> GraphData:
     graph = GraphData()
     
     # Input nodes - using Node.create() with automatic connector generation
-    input_a = Node.create("input_a", NodeType.INPUT, 50, 50, 50, 50, "A")
-    input_b = Node.create("input_b", NodeType.INPUT, 50, 150, 50, 50, "B")
-    input_c = Node.create("input_c", NodeType.INPUT, 50, 250, 50, 50, "C")
+    input_a = Node.create("input_a", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+    input_b = Node.create("input_b", NODE_REGISTRY.get_definition("input"), 50, 150, label="B")
+    input_c = Node.create("input_c", NODE_REGISTRY.get_definition("input"), 50, 250, label="C")
     
     # Logic gates - using Node.create() with automatic connector generation
-    and_gate = Node.create("and_gate", NodeType.AND_GATE, 200, 80, 80, 60, "AND")
-    or_gate = Node.create("or_gate", NodeType.OR_GATE, 200, 220, 80, 60, "OR")
-    not_gate = Node.create("not_gate", NodeType.NOT_GATE, 400, 150, 80, 60, "NOT")
+    and_gate = Node.create("and_gate", NODE_REGISTRY.get_definition("and"), 200, 80, label="AND")
+    or_gate = Node.create("or_gate", NODE_REGISTRY.get_definition("or"), 200, 220, label="OR")
+    not_gate = Node.create("not_gate", NODE_REGISTRY.get_definition("not"), 400, 150, label="NOT")
     
     # Output nodes - using Node.create() with automatic connector generation
-    output_node_a = Node.create("output_a", NodeType.OUTPUT, 550, 175, 50, 50, "OUT")
-    output_node_b = Node.create("output_b", NodeType.OUTPUT, 550, 375, 50, 50, "OUT")
+    output_node_a = Node.create("output_a", NODE_REGISTRY.get_definition("output"), 550, 175, label="OUT")
+    output_node_b = Node.create("output_b", NODE_REGISTRY.get_definition("output"), 550, 375, label="OUT")
     
     # Add nodes to graph
     graph.add_node(input_a)
