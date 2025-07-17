@@ -21,6 +21,13 @@ uv add package_name --dev  # Add development dependency
 - The application loads UI from `ui/main.slint` dynamically
 - Slint diagnostics are printed to help debug UI file issues
 
+### Testing
+```bash
+uv run pytest                    # Run all tests
+uv run pytest tests/test_graph_data.py  # Run specific test file
+uv run pytest -v                # Run with verbose output
+```
+
 ### Debugging and Logging
 ```bash
 LOGICSIM_LOG_LEVEL=DEBUG uv run python main.py  # Enable debug logging
