@@ -149,8 +149,8 @@ class GraphData:
         node = self.nodes[node_id]
         connector = next(c for c in node.connectors if c.id == connector_id)
         
-        abs_x = node.x + connector.x_offset
-        abs_y = node.y + connector.y_offset
+        abs_x = node.x + connector.x_offset + 3
+        abs_y = node.y + connector.y_offset + 3
         
         return abs_x, abs_y
     
@@ -218,8 +218,9 @@ def create_demo_graph() -> GraphData:
     or_gate = Node.create("or_gate", NodeType.OR_GATE, 200, 220, 80, 60, "OR")
     not_gate = Node.create("not_gate", NodeType.NOT_GATE, 400, 150, 80, 60, "NOT")
     
-    # Output node - using Node.create() with automatic connector generation
-    output_node = Node.create("output", NodeType.OUTPUT, 550, 175, 50, 50, "OUT")
+    # Output nodes - using Node.create() with automatic connector generation
+    output_node_a = Node.create("output_a", NodeType.OUTPUT, 550, 175, 50, 50, "OUT")
+    output_node_b = Node.create("output_b", NodeType.OUTPUT, 550, 375, 50, 50, "OUT")
     
     # Add nodes to graph
     graph.add_node(input_a)
@@ -228,7 +229,8 @@ def create_demo_graph() -> GraphData:
     graph.add_node(and_gate)
     graph.add_node(or_gate)
     graph.add_node(not_gate)
-    graph.add_node(output_node)
+    graph.add_node(output_node_a)
+    graph.add_node(output_node_b)
     
     # Add connections
     connections = [
@@ -237,7 +239,8 @@ def create_demo_graph() -> GraphData:
         Connection("c3", "input_b", "out", "or_gate", "in1"),
         Connection("c4", "input_c", "out", "or_gate", "in2"),
         Connection("c5", "and_gate", "out", "not_gate", "in"),
-        Connection("c6", "not_gate", "out", "output", "in")
+        Connection("c6", "not_gate", "out", "output_a", "in"),
+        Connection("c7", "or_gate", "out", "output_b", "in")
     ]
     
     for conn in connections:
