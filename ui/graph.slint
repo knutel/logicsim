@@ -88,10 +88,22 @@ export component GraphView {
     in property <length> graph-height: 400px;
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
+    in property <[string]> selected-nodes: [];
+    
+    callback clicked(float, float);
     
     width: graph-width;
     height: graph-height;
     
+    // Touch area for capturing mouse clicks
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        
+        clicked => {
+            root.clicked(self.mouse-x / 1px, self.mouse-y / 1px);
+        }
+    }
     
     // Background
     Rectangle {
@@ -116,8 +128,8 @@ export component GraphView {
             background: node.node_type == "input" ? rgb(144, 238, 144) : 
                        node.node_type == "output" ? rgb(255, 182, 193) : 
                        rgb(224, 224, 224);
-            border-color: #404040;
-            border-width: 2px;
+            border-color: selected-nodes.length > 0 && selected-nodes[0] == node.id ? #0066cc : #404040;
+            border-width: selected-nodes.length > 0 && selected-nodes[0] == node.id ? 4px : 2px;
             
             Text {
                 text: node.label;

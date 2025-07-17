@@ -9,6 +9,10 @@ export component MainWindow inherits Window {
     // Expose graph data properties with default values
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
+    in property <[string]> selected-nodes: [];
+    
+    // Callback for handling graph clicks
+    callback graph-clicked(float, float);
     
     
     VerticalBox {
@@ -34,6 +38,11 @@ export component MainWindow inherits Window {
             graph-height: 480px;
             nodes: root.nodes;
             connections: root.connections;
+            selected-nodes: root.selected-nodes;
+            
+            clicked(x, y) => {
+                root.graph-clicked(x, y);
+            }
         }
         
         // Control buttons
