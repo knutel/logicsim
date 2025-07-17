@@ -187,6 +187,7 @@ class GraphData:
     def __init__(self):
         self.nodes: Dict[str, Node] = {}
         self.connections: Dict[str, Connection] = {}
+        self.selected_node_id: str | None = None  # Track currently selected node
         self.logger = logging.getLogger(__name__)
     
     def add_node(self, node: Node) -> None:
@@ -208,6 +209,59 @@ class GraphData:
         abs_y = node.y + connector.y_offset + 3
         
         return abs_x, abs_y
+    
+    def is_point_in_node(self, node: Node, x: float, y: float) -> bool:
+        """Check if point (x,y) is within node bounds"""
+        return (node.x <= x <= node.x + node.width and 
+                node.y <= y <= node.y + node.height)
+    
+    def get_node_at_position(self, x: float, y: float) -> str | None:
+        """Get the ID of the node at the given position, or None if no node"""
+        # Iterate through nodes in reverse order (later nodes drawn on top take priority)
+        for node_id, node in reversed(list(self.nodes.items())):
+            if self.is_point_in_node(node, x, y):
+                return node_id
+        return None
+    
+    def select_node(self, node_id: str) -> None:
+        """Select a specific node by ID"""
+        if node_id not in self.nodes:
+            raise ValueError(f"Node with ID '{node_id}' does not exist")
+        
+        previous_selection = self.selected_node_id
+        self.selected_node_id = node_id
+        
+        if previous_selection != node_id:
+            self.logger.debug(f"Selected node: {node_id} (previously: {previous_selection})")
+    
+    def deselect_node(self) -> None:
+        """Deselect the currently selected node"""
+        if self.selected_node_id is not None:
+            previous_selection = self.selected_node_id
+            self.selected_node_id = None
+            self.logger.debug(f"Deselected node: {previous_selection}")
+    
+    def get_selected_node(self) -> str | None:
+        """Get the ID of the currently selected node"""
+        return self.selected_node_id
+    
+    def handle_mouse_click(self, x: float, y: float) -> bool:
+        """Handle mouse click at given coordinates. Returns True if selection changed."""
+        clicked_node_id = self.get_node_at_position(x, y)
+        previous_selection = self.selected_node_id
+        
+        if clicked_node_id is None:
+            # Clicked on empty area - deselect current selection
+            self.deselect_node()
+        elif clicked_node_id == self.selected_node_id:
+            # Clicked on already selected node - deselect it
+            self.deselect_node()
+        else:
+            # Clicked on a different node - select it
+            self.select_node(clicked_node_id)
+        
+        # Return True if selection state changed
+        return previous_selection != self.selected_node_id
     
     def to_slint_format(self) -> Dict[str, Any]:
         """Convert graph data to format suitable for Slint"""
@@ -256,7 +310,8 @@ class GraphData:
         
         return {
             "nodes": slint_nodes,
-            "connections": slint_connections
+            "connections": slint_connections,
+            "selected_nodes": [self.selected_node_id] if self.selected_node_id else []
         }
 
 

@@ -429,10 +429,13 @@ class TestGraphData:
         
         assert "nodes" in result
         assert "connections" in result
+        assert "selected_nodes" in result
         assert isinstance(result["nodes"], list)
         assert isinstance(result["connections"], list)
+        assert isinstance(result["selected_nodes"], list)
         assert len(result["nodes"]) == 0
         assert len(result["connections"]) == 0
+        assert len(result["selected_nodes"]) == 0
     
     def test_to_slint_format_with_nodes(self):
         """Test Slint format conversion with nodes"""
@@ -485,6 +488,202 @@ class TestGraphData:
         assert conn_data["start_y"] == 74.0  # 50 + 21 + 3
         assert conn_data["end_x"] == 199.0   # 200 + (-4) + 3
         assert conn_data["end_y"] == 94.0    # 80 + 11 + 3 (0.25 * 60 - 4 = 11)
+    
+    def test_selection_initialization(self):
+        """Test that selection is initially None"""
+        assert self.graph.selected_node_id is None
+        assert self.graph.get_selected_node() is None
+    
+    def test_select_node(self):
+        """Test selecting a node"""
+        self.graph.add_node(self.input_node)
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.select_node("input1")
+            
+            assert self.graph.selected_node_id == "input1"
+            assert self.graph.get_selected_node() == "input1"
+            mock_logger.debug.assert_called_once_with("Selected node: input1 (previously: None)")
+    
+    def test_select_node_invalid_id(self):
+        """Test selecting a node with invalid ID"""
+        with pytest.raises(ValueError, match="Node with ID 'invalid' does not exist"):
+            self.graph.select_node("invalid")
+    
+    def test_select_different_node(self):
+        """Test selecting a different node"""
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+        
+        # Select first node
+        self.graph.select_node("input1")
+        assert self.graph.selected_node_id == "input1"
+        
+        # Select second node
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.select_node("and1")
+            
+            assert self.graph.selected_node_id == "and1"
+            assert self.graph.get_selected_node() == "and1"
+            mock_logger.debug.assert_called_once_with("Selected node: and1 (previously: input1)")
+    
+    def test_select_same_node_twice(self):
+        """Test selecting the same node twice (should not log)"""
+        self.graph.add_node(self.input_node)
+        self.graph.select_node("input1")
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.select_node("input1")
+            
+            assert self.graph.selected_node_id == "input1"
+            # Should not log when selecting the same node
+            mock_logger.debug.assert_not_called()
+    
+    def test_deselect_node(self):
+        """Test deselecting a node"""
+        self.graph.add_node(self.input_node)
+        self.graph.select_node("input1")
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.deselect_node()
+            
+            assert self.graph.selected_node_id is None
+            assert self.graph.get_selected_node() is None
+            mock_logger.debug.assert_called_once_with("Deselected node: input1")
+    
+    def test_deselect_node_when_none_selected(self):
+        """Test deselecting when no node is selected"""
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.deselect_node()
+            
+            assert self.graph.selected_node_id is None
+            # Should not log when no node was selected
+            mock_logger.debug.assert_not_called()
+    
+    def test_is_point_in_node(self):
+        """Test point-in-node hit testing"""
+        self.graph.add_node(self.input_node)
+        node = self.graph.nodes["input1"]
+        
+        # Test points inside the node (50, 50, 50x50)
+        assert self.graph.is_point_in_node(node, 60.0, 60.0) == True
+        assert self.graph.is_point_in_node(node, 50.0, 50.0) == True  # Top-left corner
+        assert self.graph.is_point_in_node(node, 100.0, 100.0) == True  # Bottom-right corner
+        assert self.graph.is_point_in_node(node, 75.0, 75.0) == True  # Center
+        
+        # Test points outside the node
+        assert self.graph.is_point_in_node(node, 49.0, 60.0) == False  # Left of node
+        assert self.graph.is_point_in_node(node, 101.0, 60.0) == False  # Right of node
+        assert self.graph.is_point_in_node(node, 60.0, 49.0) == False  # Above node
+        assert self.graph.is_point_in_node(node, 60.0, 101.0) == False  # Below node
+        assert self.graph.is_point_in_node(node, 0.0, 0.0) == False  # Far away
+    
+    def test_get_node_at_position(self):
+        """Test getting node at position"""
+        self.graph.add_node(self.input_node)  # At (50, 50) 50x50
+        self.graph.add_node(self.and_gate)    # At (200, 80) 80x60
+        
+        # Test hitting the input node
+        assert self.graph.get_node_at_position(60.0, 60.0) == "input1"
+        assert self.graph.get_node_at_position(50.0, 50.0) == "input1"
+        assert self.graph.get_node_at_position(100.0, 100.0) == "input1"
+        
+        # Test hitting the and gate
+        assert self.graph.get_node_at_position(220.0, 100.0) == "and1"
+        assert self.graph.get_node_at_position(200.0, 80.0) == "and1"
+        assert self.graph.get_node_at_position(280.0, 140.0) == "and1"
+        
+        # Test hitting empty space
+        assert self.graph.get_node_at_position(0.0, 0.0) is None
+        assert self.graph.get_node_at_position(150.0, 150.0) is None
+        assert self.graph.get_node_at_position(500.0, 500.0) is None
+    
+    def test_get_node_at_position_overlapping(self):
+        """Test node priority when nodes overlap (later nodes on top)"""
+        # Create two overlapping nodes
+        node1 = Node.create("node1", NODE_REGISTRY.get_definition("input"), 50.0, 50.0)
+        node2 = Node.create("node2", NODE_REGISTRY.get_definition("input"), 60.0, 60.0)
+        
+        self.graph.add_node(node1)
+        self.graph.add_node(node2)
+        
+        # Point (70, 70) is in both nodes, but node2 was added later so it should take priority
+        assert self.graph.get_node_at_position(70.0, 70.0) == "node2"
+    
+    def test_handle_mouse_click_select_node(self):
+        """Test mouse click selecting a node"""
+        self.graph.add_node(self.input_node)
+        
+        # Click on the node
+        result = self.graph.handle_mouse_click(60.0, 60.0)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id == "input1"
+    
+    def test_handle_mouse_click_deselect_same_node(self):
+        """Test mouse click deselecting the same node"""
+        self.graph.add_node(self.input_node)
+        self.graph.select_node("input1")
+        
+        # Click on the same node again
+        result = self.graph.handle_mouse_click(60.0, 60.0)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_mouse_click_select_different_node(self):
+        """Test mouse click selecting a different node"""
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+        self.graph.select_node("input1")
+        
+        # Click on the other node
+        result = self.graph.handle_mouse_click(220.0, 100.0)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id == "and1"
+    
+    def test_handle_mouse_click_empty_area_with_selection(self):
+        """Test mouse click on empty area when a node is selected"""
+        self.graph.add_node(self.input_node)
+        self.graph.select_node("input1")
+        
+        # Click on empty area
+        result = self.graph.handle_mouse_click(0.0, 0.0)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_mouse_click_empty_area_no_selection(self):
+        """Test mouse click on empty area when no node is selected"""
+        self.graph.add_node(self.input_node)
+        
+        # Click on empty area
+        result = self.graph.handle_mouse_click(0.0, 0.0)
+        
+        assert result == False  # Selection did not change
+        assert self.graph.selected_node_id is None
+    
+    def test_to_slint_format_with_selection(self):
+        """Test Slint format conversion with node selection"""
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+        self.graph.select_node("input1")
+        
+        result = self.graph.to_slint_format()
+        
+        assert "selected_nodes" in result
+        assert result["selected_nodes"] == ["input1"]
+    
+    def test_to_slint_format_no_selection(self):
+        """Test Slint format conversion with no selection"""
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+        
+        result = self.graph.to_slint_format()
+        
+        assert "selected_nodes" in result
+        assert result["selected_nodes"] == []
 
 
 class TestCreateDemoGraph:
