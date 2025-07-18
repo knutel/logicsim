@@ -4,9 +4,18 @@ Graph data structures and management for LogicSim
 
 from dataclasses import dataclass
 from typing import List, Dict, Any
+from enum import Enum
 import logging
+import math
 
 logger = logging.getLogger(__name__)
+
+
+class PointerState(Enum):
+    """Enumeration for tracking pointer interaction state"""
+    IDLE = "idle"
+    PRESSED = "pressed"
+    DRAGGING = "dragging"
 
 
 @dataclass
@@ -188,6 +197,15 @@ class GraphData:
         self.nodes: Dict[str, Node] = {}
         self.connections: Dict[str, Connection] = {}
         self.selected_node_id: str | None = None  # Track currently selected node
+        
+        # Movement state tracking
+        self.pointer_state: PointerState = PointerState.IDLE
+        self.drag_start_pos: tuple[float, float] = (0.0, 0.0)
+        self.drag_node_id: str | None = None
+        self.drag_offset: tuple[float, float] = (0.0, 0.0)  # Offset within node when drag started
+        self.movement_threshold: float = 5.0  # Minimum pixels to consider movement
+        self.click_selected_different_node: bool = False  # Track if we selected a different node on click
+        
         self.logger = logging.getLogger(__name__)
     
     def add_node(self, node: Node) -> None:
@@ -244,6 +262,113 @@ class GraphData:
     def get_selected_node(self) -> str | None:
         """Get the ID of the currently selected node"""
         return self.selected_node_id
+    
+    def calculate_movement_distance(self, start_x: float, start_y: float, end_x: float, end_y: float) -> float:
+        """Calculate the distance between two points"""
+        return math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
+    
+    def move_node(self, node_id: str, new_x: float, new_y: float) -> None:
+        """Move a node to a new position"""
+        if node_id not in self.nodes:
+            raise ValueError(f"Node with ID '{node_id}' does not exist")
+        
+        node = self.nodes[node_id]
+        old_x, old_y = node.x, node.y
+        node.x = new_x
+        node.y = new_y
+        
+        self.logger.debug(f"Moved node {node_id} from ({old_x}, {old_y}) to ({new_x}, {new_y})")
+    
+    def handle_pointer_down(self, x: float, y: float) -> bool:
+        """Handle pointer down event. Returns True if UI should be refreshed."""
+        if self.pointer_state != PointerState.IDLE:
+            self.logger.warning(f"Pointer down received while in state {self.pointer_state}")
+            return False
+        
+        clicked_node_id = self.get_node_at_position(x, y)
+        
+        # Store drag start information
+        self.drag_start_pos = (x, y)
+        self.pointer_state = PointerState.PRESSED
+        self.click_selected_different_node = False
+        
+        if clicked_node_id is not None:
+            self.drag_node_id = clicked_node_id
+            node = self.nodes[clicked_node_id]
+            
+            # Calculate offset within the node
+            self.drag_offset = (x - node.x, y - node.y)
+            
+            # If clicking on an unselected node, select it immediately
+            if clicked_node_id != self.selected_node_id:
+                self.select_node(clicked_node_id)
+                self.click_selected_different_node = True
+                return True
+        else:
+            self.drag_node_id = None
+            self.drag_offset = (0.0, 0.0)
+        
+        return False
+    
+    def handle_pointer_move(self, x: float, y: float) -> bool:
+        """Handle pointer move event. Returns True if UI should be refreshed."""
+        if self.pointer_state == PointerState.IDLE:
+            return False
+        
+        # Calculate movement distance from start position
+        distance = self.calculate_movement_distance(
+            self.drag_start_pos[0], self.drag_start_pos[1], x, y
+        )
+        
+        # Check if we should transition to dragging state
+        if self.pointer_state == PointerState.PRESSED and distance > self.movement_threshold:
+            self.pointer_state = PointerState.DRAGGING
+            self.logger.debug(f"Started dragging node {self.drag_node_id}")
+        
+        # If we're dragging and have a node to move
+        if self.pointer_state == PointerState.DRAGGING and self.drag_node_id is not None:
+            # Calculate new position accounting for drag offset
+            new_x = x - self.drag_offset[0]
+            new_y = y - self.drag_offset[1]
+            
+            # Move the node
+            self.move_node(self.drag_node_id, new_x, new_y)
+            return True
+        
+        return False
+    
+    def handle_pointer_up(self, x: float, y: float) -> bool:
+        """Handle pointer up event. Returns True if UI should be refreshed."""
+        if self.pointer_state == PointerState.IDLE:
+            return False
+        
+        was_dragging = self.pointer_state == PointerState.DRAGGING
+        ui_needs_refresh = False
+        
+        # If we were only pressed (not dragging), handle as selection
+        if self.pointer_state == PointerState.PRESSED:
+            # This is a click without significant movement
+            if self.drag_node_id is None:
+                # Clicked on empty area - deselect current selection
+                if self.selected_node_id is not None:
+                    self.deselect_node()
+                    ui_needs_refresh = True
+            elif self.drag_node_id == self.selected_node_id and not self.click_selected_different_node:
+                # Clicked on already selected node - deselect it
+                # Only deselect if we didn't just select it (i.e., it was already selected)
+                self.deselect_node()
+                ui_needs_refresh = True
+            # If we clicked on a different node, it was already selected in handle_pointer_down
+        
+        # Reset drag state
+        self.pointer_state = PointerState.IDLE
+        self.drag_start_pos = (0.0, 0.0)
+        self.drag_node_id = None
+        self.drag_offset = (0.0, 0.0)
+        self.click_selected_different_node = False
+        
+        # Return True if we were dragging or if selection changed
+        return was_dragging or ui_needs_refresh
     
     def handle_mouse_click(self, x: float, y: float) -> bool:
         """Handle mouse click at given coordinates. Returns True if selection changed."""

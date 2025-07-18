@@ -104,17 +104,25 @@ def main():
             
         logger.debug(f"Graph pointer event at ({x}, {y}) - kind: {kind}")
         
-        # The filtering for PointerEventKind.down is already done in the Slint side
-        # so we only receive relevant events here (kind should be "down")
+        # Dispatch based on event type
+        ui_needs_refresh = False
         
-        # Let Python handle the click logic
-        selection_changed = graph.handle_mouse_click(x, y)
+        if kind == "down":
+            ui_needs_refresh = graph.handle_pointer_down(x, y)
+        elif kind == "move":
+            ui_needs_refresh = graph.handle_pointer_move(x, y)
+        elif kind == "up":
+            ui_needs_refresh = graph.handle_pointer_up(x, y)
+        else:
+            logger.warning(f"Unknown pointer event kind: {kind}")
+            return
         
-        if selection_changed:
-            logger.debug(f"Selection changed to: {graph.get_selected_node()}")
+        # Refresh UI if needed
+        if ui_needs_refresh:
+            logger.debug(f"Refreshing UI - Selected node: {graph.get_selected_node()}")
             refresh_ui_data()
         else:
-            logger.debug("Selection unchanged")
+            logger.debug("UI refresh not needed")
     
     # Get the path to the Slint UI file
     ui_path = Path(__file__).parent / "ui" / "main.slint"

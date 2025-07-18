@@ -15,6 +15,7 @@ from logicsim.graph_data import (
     Node,
     Connection,
     GraphData,
+    PointerState,
     create_demo_graph
 )
 
@@ -684,6 +685,322 @@ class TestGraphData:
         
         assert "selected_nodes" in result
         assert result["selected_nodes"] == []
+
+
+class TestGraphDataMovement:
+    """Test cases for node movement functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create test nodes
+        self.node1 = Node.create("node1", NODE_REGISTRY.get_definition("input"), 100, 100)
+        self.node2 = Node.create("node2", NODE_REGISTRY.get_definition("and"), 200, 150)
+        self.node3 = Node.create("node3", NODE_REGISTRY.get_definition("output"), 300, 200)
+        
+        # Add nodes to graph
+        self.graph.add_node(self.node1)
+        self.graph.add_node(self.node2)
+        self.graph.add_node(self.node3)
+    
+    def test_movement_state_initialization(self):
+        """Test that movement state is properly initialized"""
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert self.graph.drag_start_pos == (0.0, 0.0)
+        assert self.graph.drag_node_id is None
+        assert self.graph.drag_offset == (0.0, 0.0)
+        assert self.graph.movement_threshold == 5.0
+    
+    def test_calculate_movement_distance(self):
+        """Test movement distance calculation"""
+        # Test basic distance calculation
+        distance = self.graph.calculate_movement_distance(0, 0, 3, 4)
+        assert distance == 5.0
+        
+        # Test zero distance
+        distance = self.graph.calculate_movement_distance(10, 20, 10, 20)
+        assert distance == 0.0
+        
+        # Test negative coordinates
+        distance = self.graph.calculate_movement_distance(-5, -5, 5, 5)
+        assert distance == pytest.approx(14.142, rel=1e-3)
+    
+    def test_move_node_valid(self):
+        """Test moving a node to a valid position"""
+        original_x, original_y = self.node1.x, self.node1.y
+        new_x, new_y = 150.0, 175.0
+        
+        self.graph.move_node("node1", new_x, new_y)
+        
+        assert self.node1.x == new_x
+        assert self.node1.y == new_y
+        assert self.node1.x != original_x
+        assert self.node1.y != original_y
+    
+    def test_move_node_invalid_id(self):
+        """Test moving a non-existent node raises error"""
+        with pytest.raises(ValueError, match="Node with ID 'nonexistent' does not exist"):
+            self.graph.move_node("nonexistent", 100, 100)
+    
+    def test_handle_pointer_down_on_node(self):
+        """Test pointer down on a node"""
+        # Test clicking on node1
+        ui_changed = self.graph.handle_pointer_down(110, 110)
+        
+        # Should transition to PRESSED state
+        assert self.graph.pointer_state == PointerState.PRESSED
+        assert self.graph.drag_start_pos == (110, 110)
+        assert self.graph.drag_node_id == "node1"
+        assert self.graph.drag_offset == (10, 10)  # offset within node
+        
+        # Should select the node and return True for UI refresh
+        assert ui_changed is True
+        assert self.graph.selected_node_id == "node1"
+    
+    def test_handle_pointer_down_on_selected_node(self):
+        """Test pointer down on already selected node"""
+        # Select node first
+        self.graph.select_node("node1")
+        
+        # Click on the same node
+        ui_changed = self.graph.handle_pointer_down(110, 110)
+        
+        # Should transition to PRESSED state
+        assert self.graph.pointer_state == PointerState.PRESSED
+        assert self.graph.drag_node_id == "node1"
+        
+        # Should not change selection (already selected)
+        assert ui_changed is False
+        assert self.graph.selected_node_id == "node1"
+    
+    def test_handle_pointer_down_on_empty_area(self):
+        """Test pointer down on empty area"""
+        # Select a node first
+        self.graph.select_node("node1")
+        
+        # Click on empty area
+        ui_changed = self.graph.handle_pointer_down(50, 50)
+        
+        # Should transition to PRESSED state
+        assert self.graph.pointer_state == PointerState.PRESSED
+        assert self.graph.drag_start_pos == (50, 50)
+        assert self.graph.drag_node_id is None
+        assert self.graph.drag_offset == (0.0, 0.0)
+        
+        # Should not change selection yet (selection changes on mouse up)
+        assert ui_changed is False
+        assert self.graph.selected_node_id == "node1"
+    
+    def test_handle_pointer_down_invalid_state(self):
+        """Test pointer down when not in IDLE state"""
+        # Set to non-IDLE state
+        self.graph.pointer_state = PointerState.PRESSED
+        
+        # Try to handle pointer down
+        ui_changed = self.graph.handle_pointer_down(100, 100)
+        
+        # Should not change state and return False
+        assert ui_changed is False
+        assert self.graph.pointer_state == PointerState.PRESSED
+    
+    def test_handle_pointer_move_idle_state(self):
+        """Test pointer move when in IDLE state"""
+        ui_changed = self.graph.handle_pointer_move(100, 100)
+        
+        # Should not change anything
+        assert ui_changed is False
+        assert self.graph.pointer_state == PointerState.IDLE
+    
+    def test_handle_pointer_move_small_movement(self):
+        """Test pointer move with small movement (below threshold)"""
+        # Start with pointer down
+        self.graph.handle_pointer_down(110, 110)
+        
+        # Move just under threshold
+        ui_changed = self.graph.handle_pointer_move(113, 113)
+        
+        # Should stay in PRESSED state (distance = ~4.24 < 5.0)
+        assert self.graph.pointer_state == PointerState.PRESSED
+        assert ui_changed is False
+    
+    def test_handle_pointer_move_large_movement_with_node(self):
+        """Test pointer move with large movement on a node"""
+        # Start with pointer down on node1
+        self.graph.handle_pointer_down(110, 110)
+        
+        # Move beyond threshold
+        ui_changed = self.graph.handle_pointer_move(120, 120)
+        
+        # Should transition to DRAGGING state
+        assert self.graph.pointer_state == PointerState.DRAGGING
+        assert ui_changed is True
+        
+        # Node should be moved to new position (accounting for offset)
+        assert self.node1.x == 110.0  # 120 - 10 (offset)
+        assert self.node1.y == 110.0  # 120 - 10 (offset)
+    
+    def test_handle_pointer_move_large_movement_no_node(self):
+        """Test pointer move with large movement on empty area"""
+        # Start with pointer down on empty area
+        self.graph.handle_pointer_down(50, 50)
+        
+        # Move beyond threshold
+        ui_changed = self.graph.handle_pointer_move(60, 60)
+        
+        # Should transition to DRAGGING state but no node to move
+        assert self.graph.pointer_state == PointerState.DRAGGING
+        assert ui_changed is False
+        assert self.graph.drag_node_id is None
+    
+    def test_handle_pointer_move_continuous_dragging(self):
+        """Test continuous pointer move during dragging"""
+        # Start dragging
+        self.graph.handle_pointer_down(110, 110)
+        self.graph.handle_pointer_move(120, 120)  # Start dragging
+        
+        # Continue dragging
+        ui_changed = self.graph.handle_pointer_move(130, 125)
+        
+        # Should continue dragging
+        assert self.graph.pointer_state == PointerState.DRAGGING
+        assert ui_changed is True
+        
+        # Node should be at new position
+        assert self.node1.x == 120.0  # 130 - 10 (offset)
+        assert self.node1.y == 115.0  # 125 - 10 (offset)
+    
+    def test_handle_pointer_up_after_click(self):
+        """Test pointer up after a click (no significant movement)"""
+        # Select node2 first
+        self.graph.select_node("node2")
+        
+        # Click on node1 (just press, no significant movement)
+        ui_changed_down = self.graph.handle_pointer_down(110, 110)
+        ui_changed_up = self.graph.handle_pointer_up(112, 112)
+        
+        # Should reset to IDLE state
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert self.graph.drag_node_id is None
+        assert self.graph.drag_start_pos == (0.0, 0.0)
+        assert self.graph.drag_offset == (0.0, 0.0)
+        
+        # Should have selected node1 (was selected in pointer_down)
+        assert ui_changed_down is True  # Selection changed in pointer_down
+        assert ui_changed_up is False   # No additional change needed in pointer_up
+        assert self.graph.selected_node_id == "node1"
+    
+    def test_handle_pointer_up_after_click_same_node(self):
+        """Test pointer up after clicking on already selected node"""
+        # Select node1
+        self.graph.select_node("node1")
+        
+        # Click on same node
+        self.graph.handle_pointer_down(110, 110)
+        ui_changed = self.graph.handle_pointer_up(112, 112)
+        
+        # Should deselect the node
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert ui_changed is True
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_pointer_up_after_click_empty_area(self):
+        """Test pointer up after clicking on empty area"""
+        # Select a node first
+        self.graph.select_node("node1")
+        
+        # Click on empty area
+        self.graph.handle_pointer_down(50, 50)
+        ui_changed = self.graph.handle_pointer_up(52, 52)
+        
+        # Should deselect current selection
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert ui_changed is True
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_pointer_up_after_dragging(self):
+        """Test pointer up after dragging a node"""
+        # Start dragging
+        self.graph.handle_pointer_down(110, 110)
+        self.graph.handle_pointer_move(120, 120)  # Start dragging
+        
+        # Finish dragging
+        ui_changed = self.graph.handle_pointer_up(125, 125)
+        
+        # Should reset to IDLE state
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert self.graph.drag_node_id is None
+        
+        # Should refresh UI since we were dragging
+        assert ui_changed is True
+        
+        # Node should stay selected
+        assert self.graph.selected_node_id == "node1"
+    
+    def test_handle_pointer_up_idle_state(self):
+        """Test pointer up when in IDLE state"""
+        ui_changed = self.graph.handle_pointer_up(100, 100)
+        
+        # Should not change anything
+        assert ui_changed is False
+        assert self.graph.pointer_state == PointerState.IDLE
+    
+    def test_movement_integration_scenario(self):
+        """Test complete movement scenario integration"""
+        # Initial state: no selection
+        assert self.graph.selected_node_id is None
+        assert self.graph.pointer_state == PointerState.IDLE
+        
+        # 1. Click and drag node1
+        self.graph.handle_pointer_down(110, 110)  # Click on node1
+        assert self.graph.selected_node_id == "node1"
+        assert self.graph.pointer_state == PointerState.PRESSED
+        
+        # 2. Move beyond threshold to start dragging
+        self.graph.handle_pointer_move(120, 120)
+        assert self.graph.pointer_state == PointerState.DRAGGING
+        
+        # 3. Continue dragging
+        self.graph.handle_pointer_move(150, 130)
+        assert self.node1.x == 140.0  # 150 - 10 (offset)
+        assert self.node1.y == 120.0  # 130 - 10 (offset)
+        
+        # 4. Release mouse
+        self.graph.handle_pointer_up(150, 130)
+        assert self.graph.pointer_state == PointerState.IDLE
+        assert self.graph.selected_node_id == "node1"  # Still selected
+        
+        # 5. Click on same node again (should deselect)
+        self.graph.handle_pointer_down(150, 130)
+        self.graph.handle_pointer_up(152, 132)  # Small movement
+        assert self.graph.selected_node_id is None  # Deselected
+    
+    def test_movement_with_connection_updates(self):
+        """Test that connections are properly updated when nodes move"""
+        # Add a connection between node1 and node2
+        connection = Connection("conn1", "node1", "out", "node2", "in1")
+        self.graph.add_connection(connection)
+        
+        # Get initial connection position
+        initial_result = self.graph.to_slint_format()
+        initial_conn = initial_result["connections"][0]
+        initial_start_x = initial_conn["start_x"]
+        initial_start_y = initial_conn["start_y"]
+        
+        # Move node1
+        self.graph.move_node("node1", 200, 200)
+        
+        # Check that connection positions updated
+        updated_result = self.graph.to_slint_format()
+        updated_conn = updated_result["connections"][0]
+        
+        # Start position should have changed (node1 moved)
+        assert updated_conn["start_x"] != initial_start_x
+        assert updated_conn["start_y"] != initial_start_y
+        
+        # End position should be unchanged (node2 didn't move)
+        assert updated_conn["end_x"] == initial_conn["end_x"]
+        assert updated_conn["end_y"] == initial_conn["end_y"]
 
 
 class TestCreateDemoGraph:

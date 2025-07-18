@@ -103,6 +103,10 @@ export component GraphView {
         pointer-event(event) => {
             if (event.kind == PointerEventKind.down) {
                 root.pointer-event("down", self.mouse-x / 1px, self.mouse-y / 1px);
+            } else if (event.kind == PointerEventKind.up) {
+                root.pointer-event("up", self.mouse-x / 1px, self.mouse-y / 1px);
+            } else if (event.kind == PointerEventKind.move) {
+                root.pointer-event("move", self.mouse-x / 1px, self.mouse-y / 1px);
             }
         }
     }
