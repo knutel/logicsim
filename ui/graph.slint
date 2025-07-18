@@ -26,28 +26,29 @@ export component ConnectionLine {
     in property <color> line-color: #000000;
     in property <length> line-width: 2px;
     
-    // Position the path to cover the line area
-    x: min(start-x, end-x);
-    y: min(start-y, end-y);
-    width: abs(end-x - start-x) + 1px;
-    height: abs(end-y - start-y) + 1px;
+    x: 0;
+    y: 0;
+    width: 100%;
+    height: 100%;
     
     Path {
-        x: 0;
-        y: 0;
+        x: parent.x;
+        y: parent.y;
         width: parent.width;
         height: parent.height;
+        viewbox-width: parent.width / 1px;
+        viewbox-height: parent.height / 1px;
         fill: transparent;
         stroke: line-color;
         stroke-width: line-width;
         
         MoveTo {
-            x: (start-x - parent.x) / 1px;
-            y: (start-y - parent.y) / 1px;
+            x: start-x / 1px;
+            y: start-y / 1px;
         }
         LineTo {
-            x: (end-x - parent.x) / 1px;
-            y: (end-y - parent.y) / 1px;
+            x: end-x / 1px;
+            y: end-y / 1px;
         }
     }
 }
