@@ -108,6 +108,7 @@ The graph system uses Python for data management and Slint for rendering:
 - **Important**: Path coordinates are relative to the Path element bounds, not container
 - Line positioning calculation: Path positioned at line start with width/height spanning to end
 - Path coordinates: (0,0) to (width, height) for line endpoints
+- **Memory**: We need to set viewbox-height and viewbox-width of the Path element. Otherwise the viewbox will be set to the extents of the contents of the Path element.
 
 #### Data Structure Design
 - **Graph definition**: Controlled entirely from Python side with registry pattern for extensibility
