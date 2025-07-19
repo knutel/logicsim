@@ -7,6 +7,7 @@ Main application entry point
 import sys
 import os
 import logging
+import time
 import slint
 from pathlib import Path
 from logicsim.graph_data import create_demo_graph
@@ -96,6 +97,8 @@ def main():
         main_window.nodes = slint.ListModel(slint_nodes)
         main_window.connections = slint.ListModel(slint_connections)
         main_window.selected_nodes = slint.ListModel([str(node_id) for node_id in graph_data['selected_nodes']])
+        main_window.editing_node_id = graph_data['editing_node_id']
+        main_window.editing_text = graph_data['editing_text']
     
     def handle_graph_pointer_event(kind, x, y):
         """Handle pointer event on graph area"""
@@ -108,7 +111,14 @@ def main():
         ui_needs_refresh = False
         
         if kind == "down":
-            ui_needs_refresh = graph.handle_pointer_down(x, y)
+            # Check for double-click
+            current_time = time.time()
+            if graph.is_double_click(current_time):
+                # Handle double-click for label editing
+                ui_needs_refresh = graph.handle_double_click(x, y)
+            else:
+                # Handle single click for selection/movement
+                ui_needs_refresh = graph.handle_pointer_down(x, y)
         elif kind == "move":
             ui_needs_refresh = graph.handle_pointer_move(x, y)
         elif kind == "up":
@@ -154,6 +164,28 @@ def main():
         
         # Connect the pointer event callback
         main_window.graph_pointer_event = handle_graph_pointer_event
+        
+        # Connect label editing callbacks
+        def handle_label_edit_completed(node_id, new_label):
+            """Handle completion of label editing"""
+            if graph is None:
+                return
+            
+            logger.debug(f"Label edit completed for node {node_id}: '{new_label}'")
+            ui_needs_refresh = graph.complete_label_edit(node_id, new_label)
+            
+            if ui_needs_refresh:
+                refresh_ui_data()
+        
+        def handle_label_edit_changed(text):
+            """Handle changes to editing text"""
+            if graph is None:
+                return
+            
+            graph.update_editing_text(text)
+        
+        main_window.label_edit_completed = handle_label_edit_completed
+        main_window.label_edit_changed = handle_label_edit_changed
         
         logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
         

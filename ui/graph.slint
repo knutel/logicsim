@@ -1,4 +1,5 @@
 // Graph visualization component for LogicSim
+import { VerticalBox, LineEdit } from "std-widgets.slint";
 
 // Individual connector component (black dot)
 export component Connector {
@@ -90,8 +91,12 @@ export component GraphView {
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
+    in property <string> editing-node-id: "";
+    in property <string> editing-text: "";
     
     callback pointer-event(string, float, float);
+    callback label-edit-completed(string, string);
+    callback label-edit-changed(string);
     
     width: graph-width;
     height: graph-height;
@@ -138,12 +143,36 @@ export component GraphView {
             border-color: selected-nodes.length > 0 && selected-nodes[0] == node.id ? #0066cc : #404040;
             border-width: selected-nodes.length > 0 && selected-nodes[0] == node.id ? 4px : 2px;
             
-            Text {
-                text: node.label;
-                color: #000000;
-                font-size: 12px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+            VerticalBox {
+                spacing: 2px;
+                padding: 2px;
+                
+                Text {
+                    text: node.node_type;
+                    color: #000000;
+                    font-size: 10px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                }
+                
+                if editing-node-id == node.id: LineEdit {
+                    text: editing-text;
+                    horizontal-alignment: center;
+                    font-size: 12px;
+                    
+                    accepted(text) => {
+                        root.label-edit-completed(node.id, text);
+                    }
+                    edited(text) => {
+                        root.label-edit-changed(text);
+                    }
+                }
+                if editing-node-id != node.id: Text {
+                    text: node.label;
+                    color: #000000;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
             }
         }
         

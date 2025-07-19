@@ -10,9 +10,13 @@ export component MainWindow inherits Window {
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
+    in property <string> editing-node-id: "";
+    in property <string> editing-text: "";
     
     // Callback for handling graph pointer events
     callback graph-pointer-event(string, float, float);
+    callback label-edit-completed(string, string);
+    callback label-edit-changed(string);
     
     
     VerticalBox {
@@ -39,9 +43,17 @@ export component MainWindow inherits Window {
             nodes: root.nodes;
             connections: root.connections;
             selected-nodes: root.selected-nodes;
+            editing-node-id: root.editing-node-id;
+            editing-text: root.editing-text;
             
             pointer-event(kind, x, y) => {
                 root.graph-pointer-event(kind, x, y);
+            }
+            label-edit-completed(node_id, new_label) => {
+                root.label-edit-completed(node_id, new_label);
+            }
+            label-edit-changed(text) => {
+                root.label-edit-changed(text);
             }
         }
         

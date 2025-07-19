@@ -1081,3 +1081,340 @@ class TestCreateDemoGraph:
                 assert "x" in connector
                 assert "y" in connector
                 assert "is_input" in connector
+
+
+class TestGraphDataLabelEditing:
+    """Test cases for label editing functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create test nodes
+        self.input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50, label="Test Input")
+        self.and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200, 80, label="Test AND")
+        
+        # Add nodes to graph
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+    
+    def test_editing_state_initialization(self):
+        """Test that editing state is properly initialized"""
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+        assert self.graph.last_click_time == 0.0
+        assert self.graph.double_click_threshold == 0.5
+    
+    def test_start_label_edit_valid_node(self):
+        """Test starting label edit for a valid node"""
+        result = self.graph.start_label_edit("input1")
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id == "input1"
+        assert self.graph.editing_text == "Test Input"
+    
+    def test_start_label_edit_invalid_node(self):
+        """Test starting label edit for an invalid node"""
+        with patch.object(self.graph.logger, 'warning') as mock_warning:
+            result = self.graph.start_label_edit("nonexistent")
+            
+            assert result == False  # UI should not refresh
+            assert self.graph.editing_node_id is None
+            assert self.graph.editing_text == ""
+            mock_warning.assert_called_once()
+    
+    def test_start_label_edit_cancels_existing_edit(self):
+        """Test that starting a new edit cancels any existing edit"""
+        # Start first edit
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        
+        # Start second edit - should cancel first
+        result = self.graph.start_label_edit("and1")
+        
+        assert result == True
+        assert self.graph.editing_node_id == "and1"
+        assert self.graph.editing_text == "Test AND"
+    
+    def test_complete_label_edit_valid(self):
+        """Test completing a valid label edit"""
+        self.graph.start_label_edit("input1")
+        
+        result = self.graph.complete_label_edit("input1", "  New Label  ")
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+        assert self.graph.nodes["input1"].label == "New Label"  # Should be stripped
+    
+    def test_complete_label_edit_wrong_node(self):
+        """Test completing edit for wrong node"""
+        self.graph.start_label_edit("input1")
+        
+        with patch.object(self.graph.logger, 'warning') as mock_warning:
+            result = self.graph.complete_label_edit("and1", "Wrong Node")
+            
+            assert result == False
+            assert self.graph.editing_node_id == "input1"  # Should still be editing input1
+            mock_warning.assert_called_once()
+    
+    def test_complete_label_edit_nonexistent_node(self):
+        """Test completing edit for nonexistent node"""
+        self.graph.start_label_edit("input1")
+        
+        # Remove the node while editing
+        del self.graph.nodes["input1"]
+        
+        with patch.object(self.graph.logger, 'warning') as mock_warning:
+            result = self.graph.complete_label_edit("input1", "New Label")
+            
+            assert result == True  # UI should refresh (edit was cancelled)
+            assert self.graph.editing_node_id is None
+            assert self.graph.editing_text == ""
+            mock_warning.assert_called_once()
+    
+    def test_complete_label_edit_not_editing(self):
+        """Test completing edit when not currently editing"""
+        with patch.object(self.graph.logger, 'warning') as mock_warning:
+            result = self.graph.complete_label_edit("input1", "New Label")
+            
+            assert result == False
+            mock_warning.assert_called_once()
+    
+    def test_cancel_label_edit_while_editing(self):
+        """Test cancelling an active edit"""
+        self.graph.start_label_edit("input1")
+        original_label = self.graph.nodes["input1"].label
+        
+        result = self.graph.cancel_label_edit()
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+        assert self.graph.nodes["input1"].label == original_label  # Unchanged
+    
+    def test_cancel_label_edit_not_editing(self):
+        """Test cancelling when not editing"""
+        result = self.graph.cancel_label_edit()
+        
+        assert result == False  # UI should not refresh
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_update_editing_text(self):
+        """Test updating editing text"""
+        self.graph.start_label_edit("input1")
+        
+        self.graph.update_editing_text("New Text")
+        
+        assert self.graph.editing_text == "New Text"
+        # Original node label should be unchanged until complete
+        assert self.graph.nodes["input1"].label == "Test Input"
+    
+    def test_handle_double_click_on_node(self):
+        """Test double-click handling on a node"""
+        result = self.graph.handle_double_click(60.0, 60.0)  # Click on input1
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id == "input1"
+        assert self.graph.editing_text == "Test Input"
+    
+    def test_handle_double_click_on_empty_area(self):
+        """Test double-click handling on empty area"""
+        result = self.graph.handle_double_click(0.0, 0.0)  # Click on empty area
+        
+        assert result == False  # UI should not refresh
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_is_double_click_timing(self):
+        """Test double-click timing detection"""
+        import time
+        
+        # First click
+        current_time = time.time()
+        is_double = self.graph.is_double_click(current_time)
+        assert is_double == False  # First click is never a double-click
+        
+        # Second click within threshold
+        is_double = self.graph.is_double_click(current_time + 0.3)
+        assert is_double == True
+        
+        # Third click outside threshold
+        is_double = self.graph.is_double_click(current_time + 1.0)
+        assert is_double == False
+    
+    def test_is_double_click_threshold_boundary(self):
+        """Test double-click threshold boundary conditions"""
+        import time
+        
+        current_time = time.time()
+        self.graph.is_double_click(current_time)  # First click
+        
+        # Click exactly at threshold
+        is_double = self.graph.is_double_click(current_time + self.graph.double_click_threshold)
+        assert is_double == True
+        
+        # Click just outside threshold
+        current_time = time.time()
+        self.graph.is_double_click(current_time)  # Reset
+        is_double = self.graph.is_double_click(current_time + self.graph.double_click_threshold + 0.01)
+        assert is_double == False
+    
+    def test_to_slint_format_includes_editing_state_not_editing(self):
+        """Test that Slint format includes editing state when not editing"""
+        result = self.graph.to_slint_format()
+        
+        assert "editing_node_id" in result
+        assert "editing_text" in result
+        assert result["editing_node_id"] == ""
+        assert result["editing_text"] == ""
+    
+    def test_to_slint_format_includes_editing_state_while_editing(self):
+        """Test that Slint format includes editing state while editing"""
+        self.graph.start_label_edit("input1")
+        self.graph.update_editing_text("Modified Text")
+        
+        result = self.graph.to_slint_format()
+        
+        assert "editing_node_id" in result
+        assert "editing_text" in result
+        assert result["editing_node_id"] == "input1"
+        assert result["editing_text"] == "Modified Text"
+    
+    def test_label_editing_integration_scenario(self):
+        """Test a complete label editing scenario"""
+        # Start editing
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        
+        # Update text as user types
+        self.graph.update_editing_text("New")
+        self.graph.update_editing_text("New Label")
+        assert self.graph.editing_text == "New Label"
+        
+        # Complete editing
+        self.graph.complete_label_edit("input1", "Final Label")
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+        assert self.graph.nodes["input1"].label == "Final Label"
+    
+    def test_label_editing_with_whitespace_handling(self):
+        """Test that label editing properly handles whitespace"""
+        self.graph.start_label_edit("input1")
+        
+        # Complete with whitespace that should be stripped
+        self.graph.complete_label_edit("input1", "   Spaced Label   ")
+        
+        assert self.graph.nodes["input1"].label == "Spaced Label"
+    
+    def test_multiple_nodes_editing_isolation(self):
+        """Test that editing one node doesn't affect others"""
+        original_and_label = self.graph.nodes["and1"].label
+        
+        # Edit input node
+        self.graph.start_label_edit("input1")
+        self.graph.complete_label_edit("input1", "Modified Input")
+        
+        # AND node should be unchanged
+        assert self.graph.nodes["and1"].label == original_and_label
+        assert self.graph.nodes["input1"].label == "Modified Input"
+    
+    def test_deselect_node_cancels_editing(self):
+        """Test that deselecting a node cancels any active label editing"""
+        # Select and start editing a node
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        assert self.graph.selected_node_id == "input1"
+        
+        # Deselect the node
+        self.graph.deselect_node()
+        
+        # Editing should be cancelled
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+        assert self.graph.selected_node_id is None
+    
+    def test_deselect_node_different_from_editing_node(self):
+        """Test that deselecting a different node doesn't cancel editing"""
+        # Start editing one node
+        self.graph.start_label_edit("input1")
+        
+        # Select and then deselect a different node
+        self.graph.select_node("and1")
+        self.graph.deselect_node()
+        
+        # Original editing should remain active
+        assert self.graph.editing_node_id == "input1"
+        assert self.graph.editing_text == "Test Input"
+        assert self.graph.selected_node_id is None
+    
+    def test_deselect_node_not_editing(self):
+        """Test that deselecting when not editing works normally"""
+        # Select a node without editing
+        self.graph.select_node("input1")
+        assert self.graph.selected_node_id == "input1"
+        assert self.graph.editing_node_id is None
+        
+        # Deselect the node
+        self.graph.deselect_node()
+        
+        # Should just deselect without affecting editing state
+        assert self.graph.selected_node_id is None
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_handle_mouse_click_empty_area_cancels_editing(self):
+        """Test that clicking empty area cancels editing of selected node"""
+        # Select and start editing a node
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        
+        # Click on empty area (this should deselect and cancel editing)
+        result = self.graph.handle_mouse_click(0.0, 0.0)
+        
+        # Should deselect and cancel editing
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id is None
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_handle_mouse_click_same_node_cancels_editing(self):
+        """Test that clicking the same selected/editing node cancels editing"""
+        # Select and start editing a node
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        
+        # Click on the same node (this should deselect and cancel editing)
+        result = self.graph.handle_mouse_click(60.0, 60.0)  # Click on input1
+        
+        # Should deselect and cancel editing
+        assert result == True  # Selection changed
+        assert self.graph.selected_node_id is None
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_select_different_node_while_editing(self):
+        """Test that selecting a different node while editing cancels current edit"""
+        # Start editing one node
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        assert self.graph.editing_node_id == "input1"
+        
+        # Select a different node (this implicitly deselects the first)
+        self.graph.select_node("and1")
+        
+        # The editing should still be active since we only changed selection
+        # (This tests that selection change alone doesn't cancel editing)
+        assert self.graph.editing_node_id == "input1"  # Still editing input1
+        assert self.graph.selected_node_id == "and1"   # But and1 is selected
+        
+        # However, if we explicitly deselect the currently selected node
+        self.graph.deselect_node()
+        
+        # Editing should remain since we deselected and1, not input1
+        assert self.graph.editing_node_id == "input1"  # Still editing input1
+        assert self.graph.selected_node_id is None     # Nothing selected

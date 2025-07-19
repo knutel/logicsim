@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from enum import Enum
 import logging
 import math
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,12 @@ class GraphData:
         self.movement_threshold: float = 5.0  # Minimum pixels to consider movement
         self.click_selected_different_node: bool = False  # Track if we selected a different node on click
         
+        # Label editing state tracking
+        self.editing_node_id: str | None = None
+        self.editing_text: str = ""
+        self.last_click_time: float = 0.0
+        self.double_click_threshold: float = 0.5  # seconds
+        
         self.logger = logging.getLogger(__name__)
     
     def add_node(self, node: Node) -> None:
@@ -256,6 +263,12 @@ class GraphData:
         """Deselect the currently selected node"""
         if self.selected_node_id is not None:
             previous_selection = self.selected_node_id
+            
+            # Cancel any active label editing for the deselected node
+            if self.editing_node_id == previous_selection:
+                self.cancel_label_edit()
+                self.logger.debug(f"Cancelled label editing for deselected node: {previous_selection}")
+            
             self.selected_node_id = None
             self.logger.debug(f"Deselected node: {previous_selection}")
     
@@ -370,6 +383,77 @@ class GraphData:
         # Return True if we were dragging or if selection changed
         return was_dragging or ui_needs_refresh
     
+    def start_label_edit(self, node_id: str) -> bool:
+        """Start editing a node's label. Returns True if UI should be refreshed."""
+        if node_id not in self.nodes:
+            self.logger.warning(f"Cannot edit label for non-existent node: {node_id}")
+            return False
+        
+        # Cancel any existing edit
+        if self.editing_node_id is not None:
+            self.cancel_label_edit()
+        
+        node = self.nodes[node_id]
+        self.editing_node_id = node_id
+        self.editing_text = node.label
+        
+        self.logger.debug(f"Started editing label for node {node_id}: '{node.label}'")
+        return True
+    
+    def complete_label_edit(self, node_id: str, new_label: str) -> bool:
+        """Complete label editing and update node. Returns True if UI should be refreshed."""
+        if self.editing_node_id != node_id:
+            self.logger.warning(f"Attempted to complete edit for wrong node: {node_id} (editing: {self.editing_node_id})")
+            return False
+        
+        if node_id not in self.nodes:
+            self.logger.warning(f"Cannot complete edit for non-existent node: {node_id}")
+            self.cancel_label_edit()
+            return True
+        
+        # Update the node's label
+        old_label = self.nodes[node_id].label
+        self.nodes[node_id].label = new_label.strip()
+        
+        # Clear editing state
+        self.editing_node_id = None
+        self.editing_text = ""
+        
+        self.logger.debug(f"Completed editing label for node {node_id}: '{old_label}' -> '{new_label.strip()}'")
+        return True
+    
+    def cancel_label_edit(self) -> bool:
+        """Cancel label editing without saving. Returns True if UI should be refreshed."""
+        if self.editing_node_id is None:
+            return False
+        
+        self.logger.debug(f"Cancelled editing label for node {self.editing_node_id}")
+        
+        self.editing_node_id = None
+        self.editing_text = ""
+        return True
+    
+    def update_editing_text(self, text: str) -> None:
+        """Update the editing text as user types."""
+        self.editing_text = text
+    
+    def handle_double_click(self, x: float, y: float) -> bool:
+        """Handle double-click for label editing. Returns True if UI should be refreshed."""
+        clicked_node_id = self.get_node_at_position(x, y)
+        
+        if clicked_node_id is not None:
+            # Start editing the clicked node's label
+            return self.start_label_edit(clicked_node_id)
+        
+        return False
+    
+    def is_double_click(self, current_time: float) -> bool:
+        """Check if current click is a double-click based on timing."""
+        time_diff = current_time - self.last_click_time
+        self.last_click_time = current_time
+        
+        return time_diff <= self.double_click_threshold
+    
     def handle_mouse_click(self, x: float, y: float) -> bool:
         """Handle mouse click at given coordinates. Returns True if selection changed."""
         clicked_node_id = self.get_node_at_position(x, y)
@@ -436,7 +520,9 @@ class GraphData:
         return {
             "nodes": slint_nodes,
             "connections": slint_connections,
-            "selected_nodes": [self.selected_node_id] if self.selected_node_id else []
+            "selected_nodes": [self.selected_node_id] if self.selected_node_id else [],
+            "editing_node_id": self.editing_node_id or "",
+            "editing_text": self.editing_text
         }
 
 
