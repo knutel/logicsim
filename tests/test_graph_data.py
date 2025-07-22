@@ -1663,3 +1663,259 @@ class TestGraphDataConnectionSelection:
         
         # Point away should not hit
         assert not self.graph.is_point_on_connection(fake_connection, 200, 200, tolerance=1.0)
+
+
+class TestGraphDataDeletion:
+    """Test cases for node and connection deletion functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create test nodes
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+        and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200, 80, label="AND")
+        or_gate = Node.create("or1", NODE_REGISTRY.get_definition("or"), 200, 220, label="OR")
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350, 100, label="OUT")
+        
+        # Add nodes to graph
+        self.graph.add_node(input_node)
+        self.graph.add_node(and_gate)
+        self.graph.add_node(or_gate)
+        self.graph.add_node(output_node)
+        
+        # Add test connections
+        self.connection1 = Connection("c1", "input1", "out", "and1", "in1")
+        self.connection2 = Connection("c2", "and1", "out", "output1", "in")
+        self.connection3 = Connection("c3", "input1", "out", "or1", "in1")
+        self.graph.add_connection(self.connection1)
+        self.graph.add_connection(self.connection2)
+        self.graph.add_connection(self.connection3)
+    
+    def test_delete_node_valid(self):
+        """Test deleting a valid node"""
+        # Verify node exists
+        assert "and1" in self.graph.nodes
+        assert len(self.graph.nodes) == 4
+        
+        # Delete the node
+        result = self.graph.delete_node("and1")
+        
+        # Verify node is deleted
+        assert result == True
+        assert "and1" not in self.graph.nodes
+        assert len(self.graph.nodes) == 3
+    
+    def test_delete_node_invalid(self):
+        """Test deleting a non-existent node"""
+        initial_count = len(self.graph.nodes)
+        
+        result = self.graph.delete_node("nonexistent")
+        
+        assert result == False
+        assert len(self.graph.nodes) == initial_count
+    
+    def test_delete_node_cascade_connections(self):
+        """Test that deleting a node also deletes its connections"""
+        # Verify initial state
+        assert len(self.graph.connections) == 3
+        assert "c1" in self.graph.connections  # input1 -> and1
+        assert "c2" in self.graph.connections  # and1 -> output1
+        assert "c3" in self.graph.connections  # input1 -> or1
+        
+        # Delete and1 node (should cascade delete c1 and c2)
+        result = self.graph.delete_node("and1")
+        
+        assert result == True
+        assert len(self.graph.connections) == 1  # Only c3 should remain
+        assert "c1" not in self.graph.connections
+        assert "c2" not in self.graph.connections
+        assert "c3" in self.graph.connections  # Unrelated connection preserved
+    
+    def test_delete_node_selected_state_cleanup(self):
+        """Test that deleting a selected node clears selection"""
+        # Select the node first
+        self.graph.select_node("and1")
+        assert self.graph.selected_node_id == "and1"
+        
+        # Delete the node
+        result = self.graph.delete_node("and1")
+        
+        assert result == True
+        assert self.graph.selected_node_id is None
+    
+    def test_delete_node_editing_state_cleanup(self):
+        """Test that deleting a node being edited cancels editing"""
+        # Start editing the node
+        self.graph.start_label_edit("and1")
+        assert self.graph.editing_node_id == "and1"
+        assert self.graph.editing_text == "AND"
+        
+        # Delete the node
+        result = self.graph.delete_node("and1")
+        
+        assert result == True
+        assert self.graph.editing_node_id is None
+        assert self.graph.editing_text == ""
+    
+    def test_delete_node_unrelated_state_preserved(self):
+        """Test that deleting a node doesn't affect unrelated selections"""
+        # Select a different node and start editing another
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("or1")
+        
+        # Delete unrelated node
+        result = self.graph.delete_node("and1")
+        
+        assert result == True
+        assert self.graph.selected_node_id == "input1"  # Preserved
+        assert self.graph.editing_node_id == "or1"      # Preserved
+        assert self.graph.editing_text == "OR"          # Preserved
+    
+    def test_delete_connection_valid(self):
+        """Test deleting a valid connection"""
+        # Verify connection exists
+        assert "c1" in self.graph.connections
+        assert len(self.graph.connections) == 3
+        
+        # Delete the connection
+        result = self.graph.delete_connection("c1")
+        
+        # Verify connection is deleted
+        assert result == True
+        assert "c1" not in self.graph.connections
+        assert len(self.graph.connections) == 2
+        
+        # Verify nodes are unaffected
+        assert len(self.graph.nodes) == 4
+    
+    def test_delete_connection_invalid(self):
+        """Test deleting a non-existent connection"""
+        initial_count = len(self.graph.connections)
+        
+        result = self.graph.delete_connection("nonexistent")
+        
+        assert result == False
+        assert len(self.graph.connections) == initial_count
+    
+    def test_delete_connection_selected_state_cleanup(self):
+        """Test that deleting a selected connection clears selection"""
+        # Select the connection first
+        self.graph.select_connection("c1")
+        assert self.graph.selected_connection_id == "c1"
+        
+        # Delete the connection
+        result = self.graph.delete_connection("c1")
+        
+        assert result == True
+        assert self.graph.selected_connection_id is None
+    
+    def test_delete_selected_node(self):
+        """Test deleting selected node via delete_selected"""
+        # Select a node
+        self.graph.select_node("and1")
+        initial_node_count = len(self.graph.nodes)
+        initial_connection_count = len(self.graph.connections)
+        
+        # Delete selected item
+        result = self.graph.delete_selected()
+        
+        assert result == True
+        assert len(self.graph.nodes) == initial_node_count - 1
+        assert len(self.graph.connections) < initial_connection_count  # Cascade deletion
+        assert self.graph.selected_node_id is None
+    
+    def test_delete_selected_connection(self):
+        """Test deleting selected connection via delete_selected"""
+        # Select a connection
+        self.graph.select_connection("c1")
+        initial_connection_count = len(self.graph.connections)
+        initial_node_count = len(self.graph.nodes)
+        
+        # Delete selected item
+        result = self.graph.delete_selected()
+        
+        assert result == True
+        assert len(self.graph.connections) == initial_connection_count - 1
+        assert len(self.graph.nodes) == initial_node_count  # Nodes unaffected
+        assert self.graph.selected_connection_id is None
+    
+    def test_delete_selected_nothing(self):
+        """Test delete_selected when nothing is selected"""
+        # Ensure nothing is selected
+        assert self.graph.selected_node_id is None
+        assert self.graph.selected_connection_id is None
+        
+        initial_node_count = len(self.graph.nodes)
+        initial_connection_count = len(self.graph.connections)
+        
+        # Attempt to delete
+        result = self.graph.delete_selected()
+        
+        assert result == False
+        assert len(self.graph.nodes) == initial_node_count
+        assert len(self.graph.connections) == initial_connection_count
+    
+    def test_cascade_deletion_complex_graph(self):
+        """Test cascade deletion with node having multiple connections"""
+        # input1 has connections c1 and c3, so deleting it should remove both
+        assert "c1" in self.graph.connections  # input1 -> and1
+        assert "c3" in self.graph.connections  # input1 -> or1
+        assert len(self.graph.connections) == 3
+        
+        # Delete input1
+        result = self.graph.delete_node("input1")
+        
+        assert result == True
+        assert "input1" not in self.graph.nodes
+        assert "c1" not in self.graph.connections  # Cascade deleted
+        assert "c3" not in self.graph.connections  # Cascade deleted
+        assert "c2" in self.graph.connections     # Unrelated connection preserved
+        assert len(self.graph.connections) == 1
+    
+    def test_delete_integration_scenario(self):
+        """Test a complete deletion workflow scenario"""
+        # Start with full graph
+        assert len(self.graph.nodes) == 4
+        assert len(self.graph.connections) == 3
+        
+        # Select and delete a connection
+        self.graph.select_connection("c2")
+        result1 = self.graph.delete_selected()
+        assert result1 == True
+        assert len(self.graph.connections) == 2
+        assert self.graph.selected_connection_id is None
+        
+        # Select and delete a node (with cascade)
+        self.graph.select_node("input1")
+        result2 = self.graph.delete_selected()
+        assert result2 == True
+        assert len(self.graph.nodes) == 3
+        assert len(self.graph.connections) == 0  # c1 and c3 cascade deleted
+        assert self.graph.selected_node_id is None
+        
+        # Try to delete when nothing selected
+        result3 = self.graph.delete_selected()
+        assert result3 == False
+        
+        # Graph should be stable
+        assert len(self.graph.nodes) == 3
+        assert len(self.graph.connections) == 0
+    
+    def test_delete_preserves_other_selections(self):
+        """Test that deletion of unrelated items preserves current selection"""
+        # Test 1: Select node1, but delete node2 (unrelated)
+        self.graph.select_node("input1")
+        result = self.graph.delete_node("or1")  # Delete unrelated node
+        
+        assert result == True
+        assert self.graph.selected_node_id == "input1"  # Selection preserved
+        
+        # Test 2: Select one connection, delete a different one
+        # After deleting or1, we still have c1 (input1->and1) and c2 (and1->output1)
+        # c3 (input1->or1) was cascade deleted with or1
+        self.graph.select_connection("c1")
+        result = self.graph.delete_connection("c2")  # Delete different connection
+        
+        assert result == True
+        assert self.graph.selected_connection_id == "c1"  # Selection preserved

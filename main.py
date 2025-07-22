@@ -188,6 +188,23 @@ def main():
         main_window.label_edit_completed = handle_label_edit_completed
         main_window.label_edit_changed = handle_label_edit_changed
         
+        # Connect delete callback
+        def handle_delete_clicked():
+            """Handle delete button click"""
+            if graph is None:
+                return
+            
+            logger.debug("Delete button clicked")
+            something_deleted = graph.delete_selected()
+            
+            if something_deleted:
+                logger.debug("Item deleted, refreshing UI")
+                refresh_ui_data()
+            else:
+                logger.debug("No item selected for deletion")
+        
+        main_window.delete_clicked = handle_delete_clicked
+        
         logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
         
         # Set graph data properties in Slint

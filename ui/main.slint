@@ -18,6 +18,7 @@ export component MainWindow inherits Window {
     callback graph-pointer-event(string, float, float);
     callback label-edit-completed(string, string);
     callback label-edit-changed(string);
+    callback delete-clicked();
     
     
     VerticalBox {
@@ -73,6 +74,14 @@ export component MainWindow inherits Window {
             Button {
                 text: "Simulate";
                 width: 80px;
+            }
+            
+            Button {
+                text: "Delete";
+                width: 80px;
+                clicked => {
+                    root.delete-clicked();
+                }
             }
             
             Button {

@@ -352,6 +352,67 @@ class GraphData:
         """Calculate the distance between two points"""
         return math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
     
+    def delete_node(self, node_id: str) -> bool:
+        """Delete a node and all its connections. Returns True if UI should be refreshed."""
+        if node_id not in self.nodes:
+            self.logger.warning(f"Cannot delete non-existent node: {node_id}")
+            return False
+        
+        # Find all connections that reference this node
+        connections_to_delete = []
+        for connection_id, connection in self.connections.items():
+            if connection.from_node_id == node_id or connection.to_node_id == node_id:
+                connections_to_delete.append(connection_id)
+        
+        # Delete all connections that reference this node
+        for connection_id in connections_to_delete:
+            del self.connections[connection_id]
+            self.logger.debug(f"Cascade deleted connection: {connection_id}")
+        
+        # Clean up selection state
+        if self.selected_node_id == node_id:
+            self.selected_node_id = None
+            self.logger.debug(f"Cleared node selection due to deletion: {node_id}")
+        
+        # Clean up editing state
+        if self.editing_node_id == node_id:
+            self.editing_node_id = None
+            self.editing_text = ""
+            self.logger.debug(f"Cancelled label editing due to node deletion: {node_id}")
+        
+        # Delete the node
+        del self.nodes[node_id]
+        self.logger.debug(f"Deleted node: {node_id} (cascade deleted {len(connections_to_delete)} connections)")
+        
+        return True  # Always refresh UI after node deletion
+    
+    def delete_connection(self, connection_id: str) -> bool:
+        """Delete a connection. Returns True if UI should be refreshed."""
+        if connection_id not in self.connections:
+            self.logger.warning(f"Cannot delete non-existent connection: {connection_id}")
+            return False
+        
+        # Clean up selection state
+        if self.selected_connection_id == connection_id:
+            self.selected_connection_id = None
+            self.logger.debug(f"Cleared connection selection due to deletion: {connection_id}")
+        
+        # Delete the connection
+        del self.connections[connection_id]
+        self.logger.debug(f"Deleted connection: {connection_id}")
+        
+        return True  # Always refresh UI after connection deletion
+    
+    def delete_selected(self) -> bool:
+        """Delete the currently selected node or connection. Returns True if something was deleted."""
+        if self.selected_node_id is not None:
+            return self.delete_node(self.selected_node_id)
+        elif self.selected_connection_id is not None:
+            return self.delete_connection(self.selected_connection_id)
+        else:
+            self.logger.debug("Delete requested but nothing is selected")
+            return False
+    
     def move_node(self, node_id: str, new_x: float, new_y: float) -> None:
         """Move a node to a new position"""
         if node_id not in self.nodes:
