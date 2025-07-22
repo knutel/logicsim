@@ -53,7 +53,7 @@ def main():
             return
             
         graph_data = graph.to_slint_format()
-        logger.debug(f"Refreshing UI - Selected nodes: {graph_data['selected_nodes']}")
+        logger.debug(f"Refreshing UI - Selected nodes: {graph_data['selected_nodes']}, Selected connections: {graph_data['selected_connections']}")
         
         # Convert nodes to Slint format
         slint_nodes = []
@@ -97,6 +97,7 @@ def main():
         main_window.nodes = slint.ListModel(slint_nodes)
         main_window.connections = slint.ListModel(slint_connections)
         main_window.selected_nodes = slint.ListModel([str(node_id) for node_id in graph_data['selected_nodes']])
+        main_window.selected_connections = slint.ListModel([str(conn_id) for conn_id in graph_data['selected_connections']])
         main_window.editing_node_id = graph_data['editing_node_id']
         main_window.editing_text = graph_data['editing_text']
     

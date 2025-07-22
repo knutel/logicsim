@@ -10,6 +10,7 @@ export component MainWindow inherits Window {
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
+    in property <[string]> selected-connections: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
     
@@ -43,6 +44,7 @@ export component MainWindow inherits Window {
             nodes: root.nodes;
             connections: root.connections;
             selected-nodes: root.selected-nodes;
+            selected-connections: root.selected-connections;
             editing-node-id: root.editing-node-id;
             editing-text: root.editing-text;
             

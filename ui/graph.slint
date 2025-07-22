@@ -24,8 +24,9 @@ export component ConnectionLine {
     in property <length> start-y;
     in property <length> end-x;
     in property <length> end-y;
-    in property <color> line-color: #000000;
-    in property <length> line-width: 2px;
+    in property <bool> is-selected: false;
+    in property <color> line-color: is-selected ? #0066cc : #000000;
+    in property <length> line-width: is-selected ? 4px : 2px;
     
     x: 0;
     y: 0;
@@ -91,6 +92,7 @@ export component GraphView {
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
+    in property <[string]> selected-connections: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
     
@@ -189,5 +191,6 @@ export component GraphView {
         start-y: connection.start_y;
         end-x: connection.end_x;
         end-y: connection.end_y;
+        is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
     }
 }

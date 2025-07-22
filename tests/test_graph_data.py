@@ -1418,3 +1418,248 @@ class TestGraphDataLabelEditing:
         # Editing should remain since we deselected and1, not input1
         assert self.graph.editing_node_id == "input1"  # Still editing input1
         assert self.graph.selected_node_id is None     # Nothing selected
+
+
+class TestGraphDataConnectionSelection:
+    """Test cases for connection selection functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create test nodes
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+        and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200, 80, label="AND")
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350, 100, label="OUT")
+        
+        # Add nodes to graph
+        self.graph.add_node(input_node)
+        self.graph.add_node(and_gate)
+        self.graph.add_node(output_node)
+        
+        # Add test connections
+        self.connection1 = Connection("c1", "input1", "out", "and1", "in1")
+        self.connection2 = Connection("c2", "and1", "out", "output1", "in")
+        self.graph.add_connection(self.connection1)
+        self.graph.add_connection(self.connection2)
+    
+    def test_connection_selection_state_initialization(self):
+        """Test that connection selection state is properly initialized"""
+        assert self.graph.selected_connection_id is None
+    
+    def test_point_to_line_segment_distance(self):
+        """Test distance calculation from point to line segment"""
+        # Point on line segment
+        distance = self.graph.point_to_line_segment_distance(50, 50, 0, 0, 100, 100)
+        assert abs(distance - 0.0) < 0.1  # Should be approximately 0
+        
+        # Point perpendicular to line segment center
+        distance = self.graph.point_to_line_segment_distance(50, 0, 0, 0, 100, 0)
+        assert abs(distance - 0.0) < 0.1
+        
+        # Point away from horizontal line
+        distance = self.graph.point_to_line_segment_distance(50, 10, 0, 0, 100, 0)
+        assert abs(distance - 10.0) < 0.1
+        
+        # Point beyond line segment end
+        distance = self.graph.point_to_line_segment_distance(150, 0, 0, 0, 100, 0)
+        assert abs(distance - 50.0) < 0.1
+    
+    def test_is_point_on_connection(self):
+        """Test point hit-testing on connections"""
+        # This test uses actual connection coordinates
+        # connection1: input1.out -> and1.in1
+        # Should be approximately from (99,74) to (199,94) based on connector positions
+        
+        # Point near the line should hit
+        assert self.graph.is_point_on_connection(self.connection1, 149, 84)  # Midpoint approximately
+        
+        # Point far from line should not hit
+        assert not self.graph.is_point_on_connection(self.connection1, 100, 150)
+        
+        # Test with custom tolerance
+        assert self.graph.is_point_on_connection(self.connection1, 149, 94, tolerance=15.0)  # Larger tolerance
+        assert not self.graph.is_point_on_connection(self.connection1, 149, 94, tolerance=5.0)  # Smaller tolerance
+    
+    def test_get_connection_at_position(self):
+        """Test getting connection at position"""
+        # Should find connection1 near its path
+        result = self.graph.get_connection_at_position(149, 84)
+        assert result == "c1"
+        
+        # Should not find connection at empty area
+        result = self.graph.get_connection_at_position(500, 500)
+        assert result is None
+        
+        # Test priority - later connections should take priority if overlapping
+        # For this we need overlapping connections, but our test setup doesn't have them
+        # So this tests the basic case
+        result = self.graph.get_connection_at_position(314, 116)  # Near connection2
+        assert result == "c2"
+    
+    def test_select_connection_valid(self):
+        """Test selecting a valid connection"""
+        self.graph.select_connection("c1")
+        
+        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_node_id is None  # Should deselect nodes
+    
+    def test_select_connection_invalid(self):
+        """Test selecting an invalid connection"""
+        with pytest.raises(ValueError, match="Connection with ID 'nonexistent' does not exist"):
+            self.graph.select_connection("nonexistent")
+    
+    def test_select_connection_deselects_node(self):
+        """Test that selecting a connection deselects any selected node"""
+        # First select a node
+        self.graph.select_node("input1")
+        assert self.graph.selected_node_id == "input1"
+        
+        # Then select a connection
+        self.graph.select_connection("c1")
+        
+        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_node_id is None
+    
+    def test_select_node_deselects_connection(self):
+        """Test that selecting a node deselects any selected connection"""
+        # First select a connection
+        self.graph.select_connection("c1")
+        assert self.graph.selected_connection_id == "c1"
+        
+        # Then select a node
+        self.graph.select_node("input1")
+        
+        assert self.graph.selected_node_id == "input1"
+        assert self.graph.selected_connection_id is None
+    
+    def test_deselect_connection(self):
+        """Test deselecting a connection"""
+        self.graph.select_connection("c1")
+        assert self.graph.selected_connection_id == "c1"
+        
+        self.graph.deselect_connection()
+        
+        assert self.graph.selected_connection_id is None
+    
+    def test_deselect_connection_when_none_selected(self):
+        """Test deselecting when no connection is selected"""
+        self.graph.deselect_connection()
+        
+        assert self.graph.selected_connection_id is None
+    
+    def test_get_selected_connection(self):
+        """Test getting selected connection"""
+        assert self.graph.get_selected_connection() is None
+        
+        self.graph.select_connection("c1")
+        assert self.graph.get_selected_connection() == "c1"
+    
+    def test_handle_pointer_down_connection_selection(self):
+        """Test pointer down handling for connection selection"""
+        # Click near connection1
+        result = self.graph.handle_pointer_down(149, 84)
+        
+        assert result == True  # UI should refresh
+        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_pointer_down_node_priority(self):
+        """Test that nodes have priority over connections"""
+        # Click on a node position (should select node, not connection)
+        result = self.graph.handle_pointer_down(75, 75)  # On input1
+        
+        assert result == True  # UI should refresh
+        assert self.graph.selected_node_id == "input1"
+        assert self.graph.selected_connection_id is None
+    
+    def test_handle_mouse_click_connection_selection(self):
+        """Test mouse click connection selection"""
+        # Click on connection
+        result = self.graph.handle_mouse_click(149, 84)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_node_id is None
+    
+    def test_handle_mouse_click_connection_deselection(self):
+        """Test clicking same connection deselects it"""
+        self.graph.select_connection("c1")
+        
+        # Click on same connection again
+        result = self.graph.handle_mouse_click(149, 84)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_connection_id is None
+    
+    def test_handle_mouse_click_different_connection(self):
+        """Test clicking different connection switches selection"""
+        self.graph.select_connection("c1")
+        
+        # Click on different connection
+        result = self.graph.handle_mouse_click(314, 116)  # Near connection2
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_connection_id == "c2"
+    
+    def test_handle_mouse_click_empty_area_deselects_connection(self):
+        """Test clicking empty area deselects connection"""
+        self.graph.select_connection("c1")
+        
+        # Click on empty area
+        result = self.graph.handle_mouse_click(500, 500)
+        
+        assert result == True  # Selection changed
+        assert self.graph.selected_connection_id is None
+    
+    def test_to_slint_format_includes_selected_connections_none(self):
+        """Test Slint format includes empty selected connections"""
+        result = self.graph.to_slint_format()
+        
+        assert "selected_connections" in result
+        assert result["selected_connections"] == []
+    
+    def test_to_slint_format_includes_selected_connections_with_selection(self):
+        """Test Slint format includes selected connection"""
+        self.graph.select_connection("c1")
+        
+        result = self.graph.to_slint_format()
+        
+        assert "selected_connections" in result
+        assert result["selected_connections"] == ["c1"]
+    
+    def test_connection_selection_integration_scenario(self):
+        """Test a complete connection selection scenario"""
+        # Start with no selection
+        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_node_id is None
+        
+        # Select a connection
+        self.graph.select_connection("c1")
+        assert self.graph.selected_connection_id == "c1"
+        
+        # Select a different connection
+        self.graph.select_connection("c2")
+        assert self.graph.selected_connection_id == "c2"
+        
+        # Select a node (should deselect connection)
+        self.graph.select_node("input1")
+        assert self.graph.selected_node_id == "input1"
+        assert self.graph.selected_connection_id is None
+        
+        # Select connection again (should deselect node)
+        self.graph.select_connection("c1")
+        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_node_id is None
+    
+    def test_connection_hit_testing_edge_cases(self):
+        """Test connection hit-testing edge cases"""
+        # Test with zero-length line (degenerate case)
+        # This shouldn't happen in practice but tests the math
+        fake_connection = Connection("test", "input1", "out", "input1", "out")
+        
+        # Point at same location should hit
+        assert self.graph.is_point_on_connection(fake_connection, 99, 74, tolerance=1.0)
+        
+        # Point away should not hit
+        assert not self.graph.is_point_on_connection(fake_connection, 200, 200, tolerance=1.0)

@@ -198,6 +198,7 @@ class GraphData:
         self.nodes: Dict[str, Node] = {}
         self.connections: Dict[str, Connection] = {}
         self.selected_node_id: str | None = None  # Track currently selected node
+        self.selected_connection_id: str | None = None  # Track currently selected connection
         
         # Movement state tracking
         self.pointer_state: PointerState = PointerState.IDLE
@@ -206,6 +207,7 @@ class GraphData:
         self.drag_offset: tuple[float, float] = (0.0, 0.0)  # Offset within node when drag started
         self.movement_threshold: float = 5.0  # Minimum pixels to consider movement
         self.click_selected_different_node: bool = False  # Track if we selected a different node on click
+        self.click_selected_different_connection: bool = False  # Track if we selected a different connection on click
         
         # Label editing state tracking
         self.editing_node_id: str | None = None
@@ -248,12 +250,55 @@ class GraphData:
                 return node_id
         return None
     
+    def is_point_on_connection(self, connection: Connection, x: float, y: float, tolerance: float = 8.0) -> bool:
+        """Check if point (x,y) is within tolerance distance of connection line"""
+        # Get connection endpoints
+        start_x, start_y = self.get_connector_absolute_position(connection.from_node_id, connection.from_connector_id)
+        end_x, end_y = self.get_connector_absolute_position(connection.to_node_id, connection.to_connector_id)
+        
+        # Calculate distance from point to line segment
+        distance = self.point_to_line_segment_distance(x, y, start_x, start_y, end_x, end_y)
+        return distance <= tolerance
+    
+    def point_to_line_segment_distance(self, px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+        """Calculate the distance from a point to a line segment"""
+        # Line segment vector
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        # If line segment is actually a point
+        if dx == 0 and dy == 0:
+            return math.sqrt((px - x1) ** 2 + (py - y1) ** 2)
+        
+        # Calculate parameter t that represents position along the line segment
+        t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
+        
+        # Find the closest point on the line segment
+        closest_x = x1 + t * dx
+        closest_y = y1 + t * dy
+        
+        # Calculate distance from point to closest point on segment
+        return math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
+    
+    def get_connection_at_position(self, x: float, y: float) -> str | None:
+        """Get the ID of the connection at the given position, or None if no connection"""
+        # Iterate through connections in reverse order (later connections drawn on top take priority)
+        for connection_id, connection in reversed(list(self.connections.items())):
+            if self.is_point_on_connection(connection, x, y):
+                return connection_id
+        return None
+    
     def select_node(self, node_id: str) -> None:
         """Select a specific node by ID"""
         if node_id not in self.nodes:
             raise ValueError(f"Node with ID '{node_id}' does not exist")
         
         previous_selection = self.selected_node_id
+        
+        # Deselect any selected connection (mutual exclusion)
+        if self.selected_connection_id is not None:
+            self.deselect_connection()
+        
         self.selected_node_id = node_id
         
         if previous_selection != node_id:
@@ -275,6 +320,33 @@ class GraphData:
     def get_selected_node(self) -> str | None:
         """Get the ID of the currently selected node"""
         return self.selected_node_id
+    
+    def select_connection(self, connection_id: str) -> None:
+        """Select a specific connection by ID"""
+        if connection_id not in self.connections:
+            raise ValueError(f"Connection with ID '{connection_id}' does not exist")
+        
+        previous_selection = self.selected_connection_id
+        
+        # Deselect any selected node (mutual exclusion)
+        if self.selected_node_id is not None:
+            self.deselect_node()
+        
+        self.selected_connection_id = connection_id
+        
+        if previous_selection != connection_id:
+            self.logger.debug(f"Selected connection: {connection_id} (previously: {previous_selection})")
+    
+    def deselect_connection(self) -> None:
+        """Deselect the currently selected connection"""
+        if self.selected_connection_id is not None:
+            previous_selection = self.selected_connection_id
+            self.selected_connection_id = None
+            self.logger.debug(f"Deselected connection: {previous_selection}")
+    
+    def get_selected_connection(self) -> str | None:
+        """Get the ID of the currently selected connection"""
+        return self.selected_connection_id
     
     def calculate_movement_distance(self, start_x: float, start_y: float, end_x: float, end_y: float) -> float:
         """Calculate the distance between two points"""
@@ -304,6 +376,7 @@ class GraphData:
         self.drag_start_pos = (x, y)
         self.pointer_state = PointerState.PRESSED
         self.click_selected_different_node = False
+        self.click_selected_different_connection = False
         
         if clicked_node_id is not None:
             self.drag_node_id = clicked_node_id
@@ -320,6 +393,15 @@ class GraphData:
         else:
             self.drag_node_id = None
             self.drag_offset = (0.0, 0.0)
+            
+            # Check for connection selection if no node was clicked
+            clicked_connection_id = self.get_connection_at_position(x, y)
+            if clicked_connection_id is not None:
+                # If clicking on an unselected connection, select it immediately
+                if clicked_connection_id != self.selected_connection_id:
+                    self.select_connection(clicked_connection_id)
+                    self.click_selected_different_connection = True
+                    return True
         
         return False
     
@@ -361,17 +443,27 @@ class GraphData:
         # If we were only pressed (not dragging), handle as selection
         if self.pointer_state == PointerState.PRESSED:
             # This is a click without significant movement
-            if self.drag_node_id is None:
-                # Clicked on empty area - deselect current selection
-                if self.selected_node_id is not None:
-                    self.deselect_node()
+            if self.drag_node_id is None and not self.click_selected_different_connection:
+                # Check if we clicked on a connection that was already selected
+                clicked_connection_id = self.get_connection_at_position(x, y)
+                if clicked_connection_id is not None and clicked_connection_id == self.selected_connection_id:
+                    # Clicked on already selected connection - deselect it
+                    self.deselect_connection()
                     ui_needs_refresh = True
+                elif clicked_connection_id is None:
+                    # Clicked on empty area - deselect current selection
+                    if self.selected_node_id is not None:
+                        self.deselect_node()
+                        ui_needs_refresh = True
+                    elif self.selected_connection_id is not None:
+                        self.deselect_connection()
+                        ui_needs_refresh = True
             elif self.drag_node_id == self.selected_node_id and not self.click_selected_different_node:
                 # Clicked on already selected node - deselect it
                 # Only deselect if we didn't just select it (i.e., it was already selected)
                 self.deselect_node()
                 ui_needs_refresh = True
-            # If we clicked on a different node, it was already selected in handle_pointer_down
+            # If we clicked on a different node or connection, it was already selected in handle_pointer_down
         
         # Reset drag state
         self.pointer_state = PointerState.IDLE
@@ -379,6 +471,7 @@ class GraphData:
         self.drag_node_id = None
         self.drag_offset = (0.0, 0.0)
         self.click_selected_different_node = False
+        self.click_selected_different_connection = False
         
         # Return True if we were dragging or if selection changed
         return was_dragging or ui_needs_refresh
@@ -457,20 +550,38 @@ class GraphData:
     def handle_mouse_click(self, x: float, y: float) -> bool:
         """Handle mouse click at given coordinates. Returns True if selection changed."""
         clicked_node_id = self.get_node_at_position(x, y)
-        previous_selection = self.selected_node_id
+        previous_node_selection = self.selected_node_id
+        previous_connection_selection = self.selected_connection_id
         
-        if clicked_node_id is None:
-            # Clicked on empty area - deselect current selection
-            self.deselect_node()
-        elif clicked_node_id == self.selected_node_id:
-            # Clicked on already selected node - deselect it
-            self.deselect_node()
+        if clicked_node_id is not None:
+            # Clicked on a node
+            if clicked_node_id == self.selected_node_id:
+                # Clicked on already selected node - deselect it
+                self.deselect_node()
+            else:
+                # Clicked on a different node - select it
+                self.select_node(clicked_node_id)
         else:
-            # Clicked on a different node - select it
-            self.select_node(clicked_node_id)
+            # No node clicked, check for connection
+            clicked_connection_id = self.get_connection_at_position(x, y)
+            if clicked_connection_id is not None:
+                # Clicked on a connection
+                if clicked_connection_id == self.selected_connection_id:
+                    # Clicked on already selected connection - deselect it
+                    self.deselect_connection()
+                else:
+                    # Clicked on a different connection - select it
+                    self.select_connection(clicked_connection_id)
+            else:
+                # Clicked on empty area - deselect current selection
+                if self.selected_node_id is not None:
+                    self.deselect_node()
+                elif self.selected_connection_id is not None:
+                    self.deselect_connection()
         
         # Return True if selection state changed
-        return previous_selection != self.selected_node_id
+        return (previous_node_selection != self.selected_node_id or 
+                previous_connection_selection != self.selected_connection_id)
     
     def to_slint_format(self) -> Dict[str, Any]:
         """Convert graph data to format suitable for Slint"""
@@ -521,6 +632,7 @@ class GraphData:
             "nodes": slint_nodes,
             "connections": slint_connections,
             "selected_nodes": [self.selected_node_id] if self.selected_node_id else [],
+            "selected_connections": [self.selected_connection_id] if self.selected_connection_id else [],
             "editing_node_id": self.editing_node_id or "",
             "editing_text": self.editing_text
         }
