@@ -73,7 +73,6 @@ export component ToolboxView {
     callback node-type-clicked(string);
     
     width: toolbox-width;
-    height: toolbox-height;
     
     Rectangle {
         width: parent.width;
@@ -95,8 +94,6 @@ export component ToolboxView {
             }
             
             ScrollView {
-                height: parent.height - 40px;
-                
                 VerticalBox {
                     spacing: 6px;
                     alignment: start;

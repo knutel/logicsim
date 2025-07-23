@@ -124,8 +124,6 @@ export struct ConnectionData {
 
 // Main graph view component
 export component GraphView {
-    in property <length> graph-width: 600px;
-    in property <length> graph-height: 400px;
     in property <[NodeData]> nodes: [];
     in property <[ConnectionData]> connections: [];
     in property <[string]> selected-nodes: [];
@@ -141,9 +139,6 @@ export component GraphView {
     callback pointer-event(string, float, float);
     callback label-edit-completed(string, string);
     callback label-edit-changed(string);
-    
-    width: graph-width;
-    height: graph-height;
     
     // Touch area for capturing mouse clicks
     TouchArea {

@@ -4,8 +4,8 @@ import { ToolboxView, NodeTypeData } from "toolbox.slint";
 
 export component MainWindow inherits Window {
     title: "LogicSim";
-    width: 800px;
-    height: 600px;
+    minimum-width: 800px;
+    minimum-height: 600px;
     
     // Expose graph data properties with default values
     in property <[NodeData]> nodes: [];
@@ -33,6 +33,7 @@ export component MainWindow inherits Window {
     VerticalBox {
         spacing: 10px;
         padding: 10px;
+        alignment: stretch;
         
         // Title section
         HorizontalBox {
@@ -50,12 +51,11 @@ export component MainWindow inherits Window {
         // Main content area - toolbox and graph view
         HorizontalBox {
             spacing: 10px;
-            height: 480px;
+            alignment: stretch;
             
             // Left toolbox panel
             ToolboxView {
-                toolbox-width: 140px;
-                toolbox-height: parent.height;
+                toolbox-width: 160px;
                 node-types: root.toolbox-items;
                 
                 node-type-clicked(node_type) => {
@@ -65,8 +65,6 @@ export component MainWindow inherits Window {
             
             // Main graph view (reduced width to accommodate toolbox)
             GraphView {
-                graph-width: 610px;
-                graph-height: parent.height;
                 nodes: root.nodes;
                 connections: root.connections;
                 selected-nodes: root.selected-nodes;
