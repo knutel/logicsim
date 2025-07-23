@@ -55,6 +55,43 @@ export component ConnectionLine {
     }
 }
 
+// Pending connection line component (gray dashed appearance)
+export component PendingConnectionLine {
+    in property <length> start-x;
+    in property <length> start-y;
+    in property <length> end-x;
+    in property <length> end-y;
+    in property <color> line-color: #888888;
+    in property <length> line-width: 2px;
+    
+    x: 0;
+    y: 0;
+    width: 100%;
+    height: 100%;
+    
+    // Draw solid line in gray to distinguish from regular connections
+    Path {
+        x: parent.x;
+        y: parent.y;
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: parent.width / 1px;
+        viewbox-height: parent.height / 1px;
+        fill: transparent;
+        stroke: line-color;
+        stroke-width: line-width;
+        
+        MoveTo {
+            x: start-x / 1px;
+            y: start-y / 1px;
+        }
+        LineTo {
+            x: end-x / 1px;
+            y: end-y / 1px;
+        }
+    }
+}
+
 // Connector data structure
 export struct ConnectorData {
     id: string,
@@ -95,6 +132,11 @@ export component GraphView {
     in property <[string]> selected-connections: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
+    in property <bool> creating-connection: false;
+    in property <length> pending-start-x;
+    in property <length> pending-start-y;
+    in property <length> pending-end-x;
+    in property <length> pending-end-y;
     
     callback pointer-event(string, float, float);
     callback label-edit-completed(string, string);
@@ -192,5 +234,13 @@ export component GraphView {
         end-x: connection.end_x;
         end-y: connection.end_y;
         is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
+    }
+    
+    // Pending connection rendering (dotted line)
+    if creating-connection: PendingConnectionLine {
+        start-x: pending-start-x;
+        start-y: pending-start-y;
+        end-x: pending-end-x;
+        end-y: pending-end-y;
     }
 }

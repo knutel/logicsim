@@ -1919,3 +1919,355 @@ class TestGraphDataDeletion:
         
         assert result == True
         assert self.graph.selected_connection_id == "c1"  # Selection preserved
+
+
+class TestGraphDataConnectionCreation:
+    """Test cases for connection creation functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create test nodes with different types
+        self.input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50)
+        self.and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200, 80)
+        self.output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350, 85)
+        
+        self.graph.add_node(self.input_node)
+        self.graph.add_node(self.and_gate)
+        self.graph.add_node(self.output_node)
+    
+    def test_get_connector_at_position(self):
+        """Test connector hit testing"""
+        # Calculate absolute position for input node "out" connector
+        abs_x, abs_y = self.graph.get_connector_absolute_position("input1", "out")
+        
+        # Test hitting the connector
+        result = self.graph.get_connector_at_position(abs_x, abs_y)
+        assert result == ("input1", "out")
+        
+        # Test hitting near the connector (within tolerance)
+        result = self.graph.get_connector_at_position(abs_x + 5, abs_y + 5)
+        assert result == ("input1", "out")
+        
+        # Test missing the connector (outside tolerance)
+        result = self.graph.get_connector_at_position(abs_x + 20, abs_y + 20)
+        assert result is None
+        
+        # Test hitting empty space
+        result = self.graph.get_connector_at_position(10, 10)
+        assert result is None
+    
+    def test_get_connector_at_position_multiple_connectors(self):
+        """Test connector hit testing with multiple connectors on same node"""
+        # AND gate has three connectors: in1, in2, out
+        and_node = self.graph.nodes["and1"]
+        
+        # Test hitting each connector
+        for connector in and_node.connectors:
+            abs_x, abs_y = self.graph.get_connector_absolute_position("and1", connector.id)
+            result = self.graph.get_connector_at_position(abs_x, abs_y)
+            assert result == ("and1", connector.id)
+    
+    def test_get_connector_at_position_overlapping_priority(self):
+        """Test connector priority when nodes overlap"""
+        # Create overlapping nodes
+        node1 = Node.create("node1", NODE_REGISTRY.get_definition("input"), 100, 100)
+        node2 = Node.create("node2", NODE_REGISTRY.get_definition("input"), 110, 110)
+        
+        self.graph.add_node(node1)
+        self.graph.add_node(node2)
+        
+        # Get overlapping position where both connectors might be hit
+        # Since we iterate in reverse order, later-added nodes take priority
+        abs_x, abs_y = self.graph.get_connector_absolute_position("node2", "out")
+        result = self.graph.get_connector_at_position(abs_x, abs_y)
+        assert result == ("node2", "out")
+    
+    def test_start_connection_creation_valid(self):
+        """Test starting connection creation from valid connector"""
+        result = self.graph.start_connection_creation("input1", "out")
+        
+        assert result == True
+        assert self.graph.creating_connection == True
+        assert self.graph.connection_start_node_id == "input1"
+        assert self.graph.connection_start_connector_id == "out"
+        
+        # Pending end position should be initialized to connector position
+        start_x, start_y = self.graph.get_connector_absolute_position("input1", "out")
+        assert self.graph.pending_connection_end_x == start_x
+        assert self.graph.pending_connection_end_y == start_y
+    
+    def test_start_connection_creation_invalid_node(self):
+        """Test starting connection creation from non-existent node"""
+        result = self.graph.start_connection_creation("nonexistent", "out")
+        
+        assert result == False
+        assert self.graph.creating_connection == False
+    
+    def test_start_connection_creation_invalid_connector(self):
+        """Test starting connection creation from non-existent connector"""
+        result = self.graph.start_connection_creation("input1", "nonexistent")
+        
+        assert result == False
+        assert self.graph.creating_connection == False
+    
+    def test_start_connection_creation_clears_existing_state(self):
+        """Test that starting connection creation clears other states"""
+        # Set up existing states
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        
+        # Start connection creation
+        result = self.graph.start_connection_creation("and1", "out")
+        
+        assert result == True
+        assert self.graph.creating_connection == True
+        assert self.graph.selected_node_id is None  # Selection cleared
+        assert self.graph.editing_node_id is None   # Editing cleared
+    
+    def test_update_pending_connection(self):
+        """Test updating pending connection position"""
+        # Start connection creation
+        self.graph.start_connection_creation("input1", "out")
+        
+        # Update pending position
+        result = self.graph.update_pending_connection(300.0, 250.0)
+        
+        assert result == True
+        assert self.graph.pending_connection_end_x == 300.0
+        assert self.graph.pending_connection_end_y == 250.0
+    
+    def test_update_pending_connection_not_creating(self):
+        """Test updating pending connection when not in creation mode"""
+        result = self.graph.update_pending_connection(300.0, 250.0)
+        
+        assert result == False
+    
+    def test_cancel_connection_creation(self):
+        """Test cancelling connection creation"""
+        # Start connection creation
+        self.graph.start_connection_creation("input1", "out")
+        assert self.graph.creating_connection == True
+        
+        # Cancel creation
+        result = self.graph.cancel_connection_creation()
+        
+        assert result == True
+        assert self.graph.creating_connection == False
+        assert self.graph.connection_start_node_id is None
+        assert self.graph.connection_start_connector_id is None
+        assert self.graph.pending_connection_end_x == 0.0
+        assert self.graph.pending_connection_end_y == 0.0
+    
+    def test_cancel_connection_creation_not_creating(self):
+        """Test cancelling when not in creation mode"""
+        result = self.graph.cancel_connection_creation()
+        
+        assert result == False
+    
+    def test_complete_connection_creation_valid(self):
+        """Test completing valid connection creation"""
+        # Start connection from input to and gate
+        self.graph.start_connection_creation("input1", "out")
+        
+        # Complete connection to and gate input
+        result = self.graph.complete_connection_creation("and1", "in1")
+        
+        assert result == True
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == 1
+        
+        # Check the created connection
+        connection = list(self.graph.connections.values())[0]
+        assert connection.from_node_id == "input1"
+        assert connection.from_connector_id == "out"
+        assert connection.to_node_id == "and1"
+        assert connection.to_connector_id == "in1"
+    
+    def test_complete_connection_creation_not_creating(self):
+        """Test completing when not in creation mode"""
+        result = self.graph.complete_connection_creation("and1", "in1")
+        
+        assert result == False
+    
+    def test_complete_connection_creation_invalid_target(self):
+        """Test completing with invalid target connector"""
+        self.graph.start_connection_creation("input1", "out")
+        
+        # Try to complete with non-existent node
+        result = self.graph.complete_connection_creation("nonexistent", "in1")
+        
+        assert result == True  # Returns True because it cancels creation
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == 0
+    
+    def test_can_create_connection_valid_output_to_input(self):
+        """Test valid connection from output to input"""
+        result = self.graph.can_create_connection("input1", "out", "and1", "in1")
+        assert result == True
+    
+    def test_can_create_connection_valid_input_to_output(self):
+        """Test valid connection from input to output (reverse direction)"""
+        result = self.graph.can_create_connection("and1", "in1", "input1", "out")
+        assert result == True
+    
+    def test_can_create_connection_same_node(self):
+        """Test invalid connection to same node"""
+        result = self.graph.can_create_connection("input1", "out", "input1", "out")
+        assert result == False
+    
+    def test_can_create_connection_output_to_output(self):
+        """Test invalid connection from output to output"""
+        result = self.graph.can_create_connection("input1", "out", "and1", "out")
+        assert result == False
+    
+    def test_can_create_connection_input_to_input(self):
+        """Test invalid connection from input to input"""
+        result = self.graph.can_create_connection("and1", "in1", "and1", "in2")
+        assert result == False
+    
+    def test_can_create_connection_duplicate(self):
+        """Test preventing duplicate connections"""
+        # Create initial connection
+        connection = Connection("c1", "input1", "out", "and1", "in1")
+        self.graph.add_connection(connection)
+        
+        # Try to create same connection again
+        result = self.graph.can_create_connection("input1", "out", "and1", "in1")
+        assert result == False
+        
+        # Try reverse direction
+        result = self.graph.can_create_connection("and1", "in1", "input1", "out")
+        assert result == False
+    
+    def test_can_create_connection_input_already_connected(self):
+        """Test preventing multiple connections to same input"""
+        # Create initial connection to and gate input
+        connection = Connection("c1", "input1", "out", "and1", "in1")
+        self.graph.add_connection(connection)
+        
+        # Try to connect another output to same input
+        input2 = Node.create("input2", NODE_REGISTRY.get_definition("input"), 50, 150)
+        self.graph.add_node(input2)
+        
+        result = self.graph.can_create_connection("input2", "out", "and1", "in1")
+        assert result == False
+    
+    def test_can_create_connection_nonexistent_nodes(self):
+        """Test connection validation with non-existent nodes"""
+        result = self.graph.can_create_connection("nonexistent1", "out", "and1", "in1")
+        assert result == False
+        
+        result = self.graph.can_create_connection("input1", "out", "nonexistent2", "in1")
+        assert result == False
+    
+    def test_can_create_connection_nonexistent_connectors(self):
+        """Test connection validation with non-existent connectors"""
+        result = self.graph.can_create_connection("input1", "nonexistent", "and1", "in1")
+        assert result == False
+        
+        result = self.graph.can_create_connection("input1", "out", "and1", "nonexistent")
+        assert result == False
+    
+    def test_connection_creation_workflow(self):
+        """Test complete connection creation workflow"""
+        initial_connections = len(self.graph.connections)
+        
+        # Start connection creation
+        result1 = self.graph.start_connection_creation("input1", "out")
+        assert result1 == True
+        assert self.graph.creating_connection == True
+        
+        # Update pending connection a few times (simulating mouse movement)
+        result2 = self.graph.update_pending_connection(150.0, 90.0)
+        assert result2 == True
+        
+        result3 = self.graph.update_pending_connection(180.0, 95.0)
+        assert result3 == True
+        
+        # Complete connection
+        result4 = self.graph.complete_connection_creation("and1", "in1")
+        assert result4 == True
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == initial_connections + 1
+    
+    def test_connection_creation_cancel_workflow(self):
+        """Test connection creation with cancellation"""
+        initial_connections = len(self.graph.connections)
+        
+        # Start connection creation
+        self.graph.start_connection_creation("input1", "out")
+        
+        # Update pending connection
+        self.graph.update_pending_connection(200.0, 100.0)
+        
+        # Cancel instead of completing
+        result = self.graph.cancel_connection_creation()
+        
+        assert result == True
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == initial_connections  # No new connections
+    
+    def test_to_slint_format_with_pending_connection(self):
+        """Test Slint format includes pending connection data"""
+        # Start connection creation
+        self.graph.start_connection_creation("input1", "out")
+        self.graph.update_pending_connection(300.0, 250.0)
+        
+        result = self.graph.to_slint_format()
+        
+        assert "creating_connection" in result
+        assert result["creating_connection"] == True
+        assert "pending_start_x" in result
+        assert "pending_start_y" in result
+        assert "pending_end_x" in result
+        assert "pending_end_y" in result
+        assert result["pending_end_x"] == 300.0
+        assert result["pending_end_y"] == 250.0
+    
+    def test_to_slint_format_no_pending_connection(self):
+        """Test Slint format when not creating connection"""
+        result = self.graph.to_slint_format()
+        
+        assert "creating_connection" in result
+        assert result["creating_connection"] == False
+        assert result["pending_start_x"] == 0.0
+        assert result["pending_start_y"] == 0.0
+        assert result["pending_end_x"] == 0.0
+        assert result["pending_end_y"] == 0.0
+    
+    def test_pointer_events_connection_creation(self):
+        """Test pointer event handling during connection creation"""
+        # Test starting connection by clicking on connector
+        input_connector_x, input_connector_y = self.graph.get_connector_absolute_position("input1", "out")
+        
+        result1 = self.graph.handle_pointer_down(input_connector_x, input_connector_y)
+        assert result1 == True
+        assert self.graph.creating_connection == True
+        
+        # Test updating pending connection during mouse move
+        result2 = self.graph.handle_pointer_move(200.0, 100.0)
+        assert result2 == True
+        assert self.graph.pending_connection_end_x == 200.0
+        assert self.graph.pending_connection_end_y == 100.0
+        
+        # Test completing connection by clicking on target connector
+        and_connector_x, and_connector_y = self.graph.get_connector_absolute_position("and1", "in1")
+        result3 = self.graph.handle_pointer_down(and_connector_x, and_connector_y)
+        assert result3 == True
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == 1
+    
+    def test_pointer_events_cancel_connection_creation(self):
+        """Test cancelling connection creation by clicking empty area"""
+        # Start connection creation
+        input_connector_x, input_connector_y = self.graph.get_connector_absolute_position("input1", "out")
+        self.graph.handle_pointer_down(input_connector_x, input_connector_y)
+        assert self.graph.creating_connection == True
+        
+        # Click on empty area to cancel
+        result = self.graph.handle_pointer_down(500.0, 500.0)  # Empty area
+        assert result == True
+        assert self.graph.creating_connection == False
+        assert len(self.graph.connections) == 0

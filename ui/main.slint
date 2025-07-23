@@ -13,6 +13,11 @@ export component MainWindow inherits Window {
     in property <[string]> selected-connections: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
+    in property <bool> creating-connection: false;
+    in property <length> pending-start-x;
+    in property <length> pending-start-y;
+    in property <length> pending-end-x;
+    in property <length> pending-end-y;
     
     // Callback for handling graph pointer events
     callback graph-pointer-event(string, float, float);
@@ -48,6 +53,11 @@ export component MainWindow inherits Window {
             selected-connections: root.selected-connections;
             editing-node-id: root.editing-node-id;
             editing-text: root.editing-text;
+            creating-connection: root.creating-connection;
+            pending-start-x: root.pending-start-x;
+            pending-start-y: root.pending-start-y;
+            pending-end-x: root.pending-end-x;
+            pending-end-y: root.pending-end-y;
             
             pointer-event(kind, x, y) => {
                 root.graph-pointer-event(kind, x, y);

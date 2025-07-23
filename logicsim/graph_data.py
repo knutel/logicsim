@@ -215,6 +215,13 @@ class GraphData:
         self.last_click_time: float = 0.0
         self.double_click_threshold: float = 0.5  # seconds
         
+        # Connection creation state tracking
+        self.creating_connection: bool = False
+        self.connection_start_node_id: str | None = None
+        self.connection_start_connector_id: str | None = None
+        self.pending_connection_end_x: float = 0.0
+        self.pending_connection_end_y: float = 0.0
+        
         self.logger = logging.getLogger(__name__)
     
     def add_node(self, node: Node) -> None:
@@ -286,6 +293,24 @@ class GraphData:
         for connection_id, connection in reversed(list(self.connections.items())):
             if self.is_point_on_connection(connection, x, y):
                 return connection_id
+        return None
+    
+    def get_connector_at_position(self, x: float, y: float, tolerance: float = 8.0) -> tuple[str, str] | None:
+        """Get the connector at the given position. Returns (node_id, connector_id) or None if no connector"""
+        # Check all nodes and their connectors
+        # Iterate in reverse order so later-added nodes take priority
+        for node_id, node in reversed(list(self.nodes.items())):
+            for connector in node.connectors:
+                connector_x, connector_y = connector.get_absolute_position(node.x, node.y)
+                # Add 3 pixels offset to match the rendering offset used in get_connector_absolute_position
+                connector_x += 3
+                connector_y += 3
+                
+                # Check if point is within tolerance distance of connector center
+                distance = math.sqrt((x - connector_x) ** 2 + (y - connector_y) ** 2)
+                if distance <= tolerance:
+                    return (node_id, connector.id)
+        
         return None
     
     def select_node(self, node_id: str) -> None:
@@ -413,6 +438,167 @@ class GraphData:
             self.logger.debug("Delete requested but nothing is selected")
             return False
     
+    def start_connection_creation(self, node_id: str, connector_id: str) -> bool:
+        """Start creating a connection from the specified connector. Returns True if UI should be refreshed."""
+        if node_id not in self.nodes:
+            self.logger.warning(f"Cannot start connection from non-existent node: {node_id}")
+            return False
+        
+        node = self.nodes[node_id]
+        connector = None
+        for conn in node.connectors:
+            if conn.id == connector_id:
+                connector = conn
+                break
+        
+        if connector is None:
+            self.logger.warning(f"Cannot start connection from non-existent connector: {node_id}:{connector_id}")
+            return False
+        
+        # Cancel any existing label editing
+        if self.editing_node_id is not None:
+            self.cancel_label_edit()
+        
+        # Clear any existing selections
+        if self.selected_node_id is not None:
+            self.deselect_node()
+        if self.selected_connection_id is not None:
+            self.deselect_connection()
+        
+        # Start connection creation
+        self.creating_connection = True
+        self.connection_start_node_id = node_id
+        self.connection_start_connector_id = connector_id
+        
+        # Initialize pending connection end point at the connector position
+        connector_x, connector_y = self.get_connector_absolute_position(node_id, connector_id)
+        self.pending_connection_end_x = connector_x
+        self.pending_connection_end_y = connector_y
+        
+        self.logger.debug(f"Started connection creation from {node_id}:{connector_id}")
+        return True
+    
+    def update_pending_connection(self, x: float, y: float) -> bool:
+        """Update the end point of the pending connection. Returns True if UI should be refreshed."""
+        if not self.creating_connection:
+            return False
+        
+        self.pending_connection_end_x = x
+        self.pending_connection_end_y = y
+        return True
+    
+    def complete_connection_creation(self, end_node_id: str, end_connector_id: str) -> bool:
+        """Complete connection creation by connecting to the specified connector. Returns True if UI should be refreshed."""
+        if not self.creating_connection:
+            self.logger.warning("Cannot complete connection creation - not in creation mode")
+            return False
+        
+        if self.connection_start_node_id is None or self.connection_start_connector_id is None:
+            self.logger.warning("Cannot complete connection creation - missing start connector")
+            self.cancel_connection_creation()
+            return True
+        
+        # Validate the connection can be created
+        if not self.can_create_connection(self.connection_start_node_id, self.connection_start_connector_id, 
+                                        end_node_id, end_connector_id):
+            self.logger.debug(f"Cannot create connection from {self.connection_start_node_id}:{self.connection_start_connector_id} to {end_node_id}:{end_connector_id}")
+            self.cancel_connection_creation()
+            return True
+        
+        # Generate unique connection ID
+        connection_id = f"conn_{len(self.connections) + 1}"
+        while connection_id in self.connections:
+            connection_id = f"conn_{len(self.connections) + hash(connection_id) % 1000}"
+        
+        # Create the connection
+        connection = Connection(
+            id=connection_id,
+            from_node_id=self.connection_start_node_id,
+            from_connector_id=self.connection_start_connector_id,
+            to_node_id=end_node_id,
+            to_connector_id=end_connector_id
+        )
+        
+        self.add_connection(connection)
+        
+        # Clear connection creation state
+        self.cancel_connection_creation()
+        
+        self.logger.debug(f"Created connection: {connection.id}")
+        return True
+    
+    def cancel_connection_creation(self) -> bool:
+        """Cancel connection creation and return to idle state. Returns True if UI should be refreshed."""
+        if not self.creating_connection:
+            return False
+        
+        self.creating_connection = False
+        self.connection_start_node_id = None
+        self.connection_start_connector_id = None
+        self.pending_connection_end_x = 0.0
+        self.pending_connection_end_y = 0.0
+        
+        self.logger.debug("Cancelled connection creation")
+        return True
+    
+    def can_create_connection(self, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> bool:
+        """Check if a connection can be created between the specified connectors"""
+        # Check that both nodes exist
+        if from_node_id not in self.nodes or to_node_id not in self.nodes:
+            return False
+        
+        # Can't connect a node to itself
+        if from_node_id == to_node_id:
+            return False
+        
+        # Get the connectors
+        from_node = self.nodes[from_node_id]
+        to_node = self.nodes[to_node_id]
+        
+        from_connector = None
+        for conn in from_node.connectors:
+            if conn.id == from_connector_id:
+                from_connector = conn
+                break
+        
+        to_connector = None
+        for conn in to_node.connectors:
+            if conn.id == to_connector_id:
+                to_connector = conn
+                break
+        
+        if from_connector is None or to_connector is None:
+            return False
+        
+        # Connection must be from output to input or input to output
+        if from_connector.is_input == to_connector.is_input:
+            return False
+        
+        # Check for duplicate connections
+        for connection in self.connections.values():
+            if (connection.from_node_id == from_node_id and connection.from_connector_id == from_connector_id and
+                connection.to_node_id == to_node_id and connection.to_connector_id == to_connector_id):
+                return False
+            # Also check reverse direction
+            if (connection.from_node_id == to_node_id and connection.from_connector_id == to_connector_id and
+                connection.to_node_id == from_node_id and connection.to_connector_id == from_connector_id):
+                return False
+        
+        # Input connectors can only have one incoming connection
+        # Check if we're connecting TO an input connector that already has a connection
+        if to_connector.is_input:
+            for connection in self.connections.values():
+                if connection.to_node_id == to_node_id and connection.to_connector_id == to_connector_id:
+                    return False
+        
+        # If from_connector is input, check if it already has incoming connection
+        if from_connector.is_input:
+            for connection in self.connections.values():
+                if connection.to_node_id == from_node_id and connection.to_connector_id == from_connector_id:
+                    return False
+        
+        return True
+    
     def move_node(self, node_id: str, new_x: float, new_y: float) -> None:
         """Move a node to a new position"""
         if node_id not in self.nodes:
@@ -430,6 +616,23 @@ class GraphData:
         if self.pointer_state != PointerState.IDLE:
             self.logger.warning(f"Pointer down received while in state {self.pointer_state}")
             return False
+        
+        # If we're creating a connection, handle it first
+        if self.creating_connection:
+            # Check if we clicked on a connector to complete the connection
+            clicked_connector = self.get_connector_at_position(x, y)
+            if clicked_connector is not None:
+                node_id, connector_id = clicked_connector
+                return self.complete_connection_creation(node_id, connector_id)
+            else:
+                # Clicked on empty area - cancel connection creation
+                return self.cancel_connection_creation()
+        
+        # Check if we clicked on a connector to start connection creation
+        clicked_connector = self.get_connector_at_position(x, y)
+        if clicked_connector is not None:
+            node_id, connector_id = clicked_connector
+            return self.start_connection_creation(node_id, connector_id)
         
         clicked_node_id = self.get_node_at_position(x, y)
         
@@ -468,6 +671,10 @@ class GraphData:
     
     def handle_pointer_move(self, x: float, y: float) -> bool:
         """Handle pointer move event. Returns True if UI should be refreshed."""
+        # If we're creating a connection, update the pending connection
+        if self.creating_connection:
+            return self.update_pending_connection(x, y)
+        
         if self.pointer_state == PointerState.IDLE:
             return False
         
@@ -689,13 +896,25 @@ class GraphData:
             }
             slint_connections.append(slint_connection)
         
+        # Get pending connection start position if creating connection
+        pending_start_x = 0.0
+        pending_start_y = 0.0
+        if self.creating_connection and self.connection_start_node_id and self.connection_start_connector_id:
+            pending_start_x, pending_start_y = self.get_connector_absolute_position(
+                self.connection_start_node_id, self.connection_start_connector_id)
+        
         return {
             "nodes": slint_nodes,
             "connections": slint_connections,
             "selected_nodes": [self.selected_node_id] if self.selected_node_id else [],
             "selected_connections": [self.selected_connection_id] if self.selected_connection_id else [],
             "editing_node_id": self.editing_node_id or "",
-            "editing_text": self.editing_text
+            "editing_text": self.editing_text,
+            "creating_connection": self.creating_connection,
+            "pending_start_x": pending_start_x,
+            "pending_start_y": pending_start_y,
+            "pending_end_x": self.pending_connection_end_x,
+            "pending_end_y": self.pending_connection_end_y
         }
 
 

@@ -100,6 +100,11 @@ def main():
         main_window.selected_connections = slint.ListModel([str(conn_id) for conn_id in graph_data['selected_connections']])
         main_window.editing_node_id = graph_data['editing_node_id']
         main_window.editing_text = graph_data['editing_text']
+        main_window.creating_connection = graph_data['creating_connection']
+        main_window.pending_start_x = graph_data['pending_start_x']
+        main_window.pending_start_y = graph_data['pending_start_y']
+        main_window.pending_end_x = graph_data['pending_end_x']
+        main_window.pending_end_y = graph_data['pending_end_y']
     
     def handle_graph_pointer_event(kind, x, y):
         """Handle pointer event on graph area"""
