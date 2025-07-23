@@ -1,0 +1,115 @@
+// Toolbox components for LogicSim
+import { VerticalBox, ScrollView } from "std-widgets.slint";
+
+// Node type data structure for toolbox
+export struct NodeTypeData {
+    node_type: string,
+    label: string,
+    color: string,
+    is_selected: bool,
+}
+
+// Individual toolbox item component
+export component NodeTypeItem {
+    in property <NodeTypeData> node_data;
+    in property <length> item-width: 120px;
+    in property <length> item-height: 60px;
+    
+    callback clicked(string);
+    
+    width: item-width;
+    height: item-height;
+    
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        
+        clicked => {
+            root.clicked(node_data.node_type);
+        }
+    }
+    
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: node_data.node_type == "input" ? #90EE90 : 
+                   node_data.node_type == "output" ? #FFB6C1 : 
+                   #E0E0E0;
+        border-color: node_data.is_selected ? #0066cc : #404040;
+        border-width: node_data.is_selected ? 3px : 1px;
+        border-radius: 4px;
+        
+        VerticalBox {
+            spacing: 4px;
+            padding: 8px;
+            alignment: center;
+            
+            Text {
+                text: node_data.node_type;
+                color: #000000;
+                font-size: 10px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            
+            Text {
+                text: node_data.label;
+                color: #000000;
+                font-size: 9px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+// Main toolbox view component
+export component ToolboxView {
+    in property <length> toolbox-width: 140px;
+    in property <length> toolbox-height: 480px;
+    in property <[NodeTypeData]> node-types: [];
+    
+    callback node-type-clicked(string);
+    
+    width: toolbox-width;
+    height: toolbox-height;
+    
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #f0f0f0;
+        border-color: #cccccc;
+        border-width: 1px;
+        
+        VerticalBox {
+            spacing: 4px;
+            padding: 8px;
+            
+            Text {
+                text: "Node Types";
+                color: #333333;
+                font-size: 12px;
+                font-weight: 700;
+                horizontal-alignment: center;
+            }
+            
+            ScrollView {
+                height: parent.height - 40px;
+                
+                VerticalBox {
+                    spacing: 6px;
+                    alignment: start;
+                    
+                    for node_type in node-types: NodeTypeItem {
+                        node_data: node_type;
+                        
+                        clicked(node_type_name) => {
+                            root.node-type-clicked(node_type_name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

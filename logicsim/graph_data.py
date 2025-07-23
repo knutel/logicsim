@@ -222,6 +222,10 @@ class GraphData:
         self.pending_connection_end_x: float = 0.0
         self.pending_connection_end_y: float = 0.0
         
+        # Toolbox and node creation state tracking
+        self.selected_node_type: str | None = None
+        self.toolbox_creation_mode: bool = False
+        
         self.logger = logging.getLogger(__name__)
     
     def add_node(self, node: Node) -> None:
@@ -599,6 +603,81 @@ class GraphData:
         
         return True
     
+    def select_toolbox_node_type(self, node_type: str) -> bool:
+        """Select a node type in the toolbox for creation. Returns True if UI should be refreshed."""
+        if node_type not in NODE_REGISTRY.list_definitions():
+            self.logger.warning(f"Cannot select unknown node type: {node_type}")
+            return False
+        
+        # Clear any existing states when entering toolbox creation mode
+        if self.creating_connection:
+            self.cancel_connection_creation()
+        
+        if self.selected_node_id is not None:
+            self.deselect_node()
+        
+        if self.selected_connection_id is not None:
+            self.deselect_connection()
+        
+        if self.editing_node_id is not None:
+            self.cancel_label_edit()
+        
+        self.selected_node_type = node_type
+        self.toolbox_creation_mode = True
+        
+        self.logger.debug(f"Selected toolbox node type: {node_type}")
+        return True
+    
+    def deselect_toolbox_node_type(self) -> bool:
+        """Deselect the current toolbox node type. Returns True if UI should be refreshed."""
+        if self.selected_node_type is None:
+            return False
+        
+        previous_selection = self.selected_node_type
+        self.selected_node_type = None
+        self.toolbox_creation_mode = False
+        
+        self.logger.debug(f"Deselected toolbox node type: {previous_selection}")
+        return True
+    
+    def create_node_at_position(self, node_type: str, x: float, y: float) -> bool:
+        """Create a new node of the specified type at the given position. Returns True if UI should be refreshed."""
+        if node_type not in NODE_REGISTRY.list_definitions():
+            self.logger.warning(f"Cannot create node of unknown type: {node_type}")
+            return False
+        
+        # Generate unique node ID
+        node_id = f"{node_type}_{len([n for n in self.nodes.values() if n.node_type == node_type]) + 1}"
+        while node_id in self.nodes:
+            node_id = f"{node_type}_{hash(node_id) % 10000}"
+        
+        # Create the node using the registry
+        node_definition = NODE_REGISTRY.get_definition(node_type)
+        new_node = Node.create(node_id, node_definition, x, y)
+        
+        self.add_node(new_node)
+        
+        # After creating a node, return to idle state
+        self.deselect_toolbox_node_type()
+        
+        self.logger.debug(f"Created new {node_type} node: {node_id} at ({x}, {y})")
+        return True
+    
+    def get_toolbox_data(self) -> List[Dict[str, Any]]:
+        """Get toolbox data for UI display"""
+        toolbox_items = []
+        
+        for node_type in NODE_REGISTRY.list_definitions():
+            definition = NODE_REGISTRY.get_definition(node_type)
+            toolbox_items.append({
+                "node_type": node_type,
+                "label": definition.label,
+                "color": definition.color,
+                "is_selected": node_type == self.selected_node_type
+            })
+        
+        return toolbox_items
+    
     def move_node(self, node_id: str, new_x: float, new_y: float) -> None:
         """Move a node to a new position"""
         if node_id not in self.nodes:
@@ -914,7 +993,9 @@ class GraphData:
             "pending_start_x": pending_start_x,
             "pending_start_y": pending_start_y,
             "pending_end_x": self.pending_connection_end_x,
-            "pending_end_y": self.pending_connection_end_y
+            "pending_end_y": self.pending_connection_end_y,
+            "toolbox_items": self.get_toolbox_data(),
+            "toolbox_creation_mode": self.toolbox_creation_mode
         }
 
 

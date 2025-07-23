@@ -1,5 +1,6 @@
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { GraphView, NodeData, ConnectionData } from "graph.slint";
+import { ToolboxView, NodeTypeData } from "toolbox.slint";
 
 export component MainWindow inherits Window {
     title: "LogicSim";
@@ -18,12 +19,15 @@ export component MainWindow inherits Window {
     in property <length> pending-start-y;
     in property <length> pending-end-x;
     in property <length> pending-end-y;
+    in property <[NodeTypeData]> toolbox-items: [];
+    in property <bool> toolbox-creation-mode: false;
     
     // Callback for handling graph pointer events
     callback graph-pointer-event(string, float, float);
     callback label-edit-completed(string, string);
     callback label-edit-changed(string);
     callback delete-clicked();
+    callback toolbox-node-type-clicked(string);
     
     
     VerticalBox {
@@ -43,30 +47,47 @@ export component MainWindow inherits Window {
             }
         }
         
-        // Main graph view
-        GraphView {
-            graph-width: 760px;
-            graph-height: 480px;
-            nodes: root.nodes;
-            connections: root.connections;
-            selected-nodes: root.selected-nodes;
-            selected-connections: root.selected-connections;
-            editing-node-id: root.editing-node-id;
-            editing-text: root.editing-text;
-            creating-connection: root.creating-connection;
-            pending-start-x: root.pending-start-x;
-            pending-start-y: root.pending-start-y;
-            pending-end-x: root.pending-end-x;
-            pending-end-y: root.pending-end-y;
+        // Main content area - toolbox and graph view
+        HorizontalBox {
+            spacing: 10px;
+            height: 480px;
             
-            pointer-event(kind, x, y) => {
-                root.graph-pointer-event(kind, x, y);
+            // Left toolbox panel
+            ToolboxView {
+                toolbox-width: 140px;
+                toolbox-height: parent.height;
+                node-types: root.toolbox-items;
+                
+                node-type-clicked(node_type) => {
+                    root.toolbox-node-type-clicked(node_type);
+                }
             }
-            label-edit-completed(node_id, new_label) => {
-                root.label-edit-completed(node_id, new_label);
-            }
-            label-edit-changed(text) => {
-                root.label-edit-changed(text);
+            
+            // Main graph view (reduced width to accommodate toolbox)
+            GraphView {
+                graph-width: 610px;
+                graph-height: parent.height;
+                nodes: root.nodes;
+                connections: root.connections;
+                selected-nodes: root.selected-nodes;
+                selected-connections: root.selected-connections;
+                editing-node-id: root.editing-node-id;
+                editing-text: root.editing-text;
+                creating-connection: root.creating-connection;
+                pending-start-x: root.pending-start-x;
+                pending-start-y: root.pending-start-y;
+                pending-end-x: root.pending-end-x;
+                pending-end-y: root.pending-end-y;
+                
+                pointer-event(kind, x, y) => {
+                    root.graph-pointer-event(kind, x, y);
+                }
+                label-edit-completed(node_id, new_label) => {
+                    root.label-edit-completed(node_id, new_label);
+                }
+                label-edit-changed(text) => {
+                    root.label-edit-changed(text);
+                }
             }
         }
         

@@ -2271,3 +2271,274 @@ class TestGraphDataConnectionCreation:
         assert result == True
         assert self.graph.creating_connection == False
         assert len(self.graph.connections) == 0
+
+
+class TestGraphDataToolbox:
+    """Test cases for toolbox functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+    
+    def test_select_toolbox_node_type_valid(self):
+        """Test selecting a valid node type from toolbox"""
+        result = self.graph.select_toolbox_node_type("input")
+        
+        assert result == True
+        assert self.graph.selected_node_type == "input"
+        assert self.graph.toolbox_creation_mode == True
+    
+    def test_select_toolbox_node_type_invalid(self):
+        """Test selecting an invalid node type from toolbox"""
+        result = self.graph.select_toolbox_node_type("nonexistent")
+        
+        assert result == False
+        assert self.graph.selected_node_type is None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_select_toolbox_clears_other_states(self):
+        """Test that selecting toolbox item clears other interaction states"""
+        # Set up existing states
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50)
+        self.graph.add_node(input_node)
+        
+        self.graph.select_node("input1")
+        self.graph.start_label_edit("input1")
+        self.graph.start_connection_creation("input1", "out")
+        
+        # Select toolbox item
+        result = self.graph.select_toolbox_node_type("and")
+        
+        assert result == True
+        assert self.graph.selected_node_type == "and"
+        assert self.graph.toolbox_creation_mode == True
+        assert self.graph.selected_node_id is None          # Node selection cleared
+        assert self.graph.editing_node_id is None           # Label editing cleared
+        assert self.graph.creating_connection == False      # Connection creation cleared
+    
+    def test_deselect_toolbox_node_type(self):
+        """Test deselecting toolbox node type"""
+        # First select a node type
+        self.graph.select_toolbox_node_type("input")
+        assert self.graph.selected_node_type == "input"
+        
+        # Then deselect
+        result = self.graph.deselect_toolbox_node_type()
+        
+        assert result == True
+        assert self.graph.selected_node_type is None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_deselect_toolbox_when_none_selected(self):
+        """Test deselecting when no toolbox item is selected"""
+        result = self.graph.deselect_toolbox_node_type()
+        
+        assert result == False
+        assert self.graph.selected_node_type is None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_create_node_at_position_valid(self):
+        """Test creating a node at specified position"""
+        initial_node_count = len(self.graph.nodes)
+        
+        result = self.graph.create_node_at_position("input", 100.0, 200.0)
+        
+        assert result == True
+        assert len(self.graph.nodes) == initial_node_count + 1
+        
+        # Find the created node
+        created_node = None
+        for node in self.graph.nodes.values():
+            if node.node_type == "input" and node.x == 100.0 and node.y == 200.0:
+                created_node = node
+                break
+        
+        assert created_node is not None
+        assert created_node.node_type == "input"
+        assert created_node.x == 100.0
+        assert created_node.y == 200.0
+    
+    def test_create_node_at_position_invalid_type(self):
+        """Test creating a node with invalid type"""
+        initial_node_count = len(self.graph.nodes)
+        
+        result = self.graph.create_node_at_position("nonexistent", 100.0, 200.0)
+        
+        assert result == False
+        assert len(self.graph.nodes) == initial_node_count
+    
+    def test_create_node_generates_unique_id(self):
+        """Test that created nodes get unique IDs"""
+        # Create multiple nodes of same type
+        self.graph.create_node_at_position("input", 50.0, 50.0)
+        self.graph.create_node_at_position("input", 100.0, 100.0)
+        self.graph.create_node_at_position("input", 150.0, 150.0)
+        
+        # Check that all nodes have unique IDs
+        node_ids = list(self.graph.nodes.keys())
+        assert len(node_ids) == len(set(node_ids))  # No duplicates
+        
+        # Check that all are input nodes
+        input_nodes = [n for n in self.graph.nodes.values() if n.node_type == "input"]
+        assert len(input_nodes) == 3
+    
+    def test_create_node_resets_toolbox_state(self):
+        """Test that creating a node resets toolbox to idle state"""
+        # Select a toolbox item
+        self.graph.select_toolbox_node_type("input")
+        assert self.graph.toolbox_creation_mode == True
+        
+        # Create a node
+        result = self.graph.create_node_at_position("input", 100.0, 200.0)
+        
+        assert result == True
+        assert self.graph.selected_node_type is None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_get_toolbox_data_empty(self):
+        """Test getting toolbox data with no selection"""
+        toolbox_data = self.graph.get_toolbox_data()
+        
+        # Should return all available node types
+        assert len(toolbox_data) == len(NODE_REGISTRY.list_definitions())
+        
+        # Check structure of returned data
+        for item in toolbox_data:
+            assert "node_type" in item
+            assert "label" in item
+            assert "color" in item
+            assert "is_selected" in item
+            assert item["is_selected"] == False  # Nothing selected
+    
+    def test_get_toolbox_data_with_selection(self):
+        """Test getting toolbox data with a selection"""
+        # Select a node type
+        self.graph.select_toolbox_node_type("and")
+        
+        toolbox_data = self.graph.get_toolbox_data()
+        
+        # Check that the selected item is marked as selected
+        and_item = next(item for item in toolbox_data if item["node_type"] == "and")
+        assert and_item["is_selected"] == True
+        
+        # Check that other items are not selected
+        other_items = [item for item in toolbox_data if item["node_type"] != "and"]
+        for item in other_items:
+            assert item["is_selected"] == False
+    
+    def test_get_toolbox_data_structure(self):
+        """Test the structure of toolbox data"""
+        toolbox_data = self.graph.get_toolbox_data()
+        
+        # Should include all standard node types
+        node_types = [item["node_type"] for item in toolbox_data]
+        assert "input" in node_types
+        assert "output" in node_types
+        assert "and" in node_types
+        assert "or" in node_types
+        assert "not" in node_types
+        
+        # Check data structure for input node
+        input_item = next(item for item in toolbox_data if item["node_type"] == "input")
+        assert input_item["label"] == "INPUT"
+        assert input_item["color"] == "rgb(144, 238, 144)"
+        assert isinstance(input_item["is_selected"], bool)
+    
+    def test_to_slint_format_includes_toolbox_data(self):
+        """Test that Slint format includes toolbox data"""
+        # Select a toolbox item
+        self.graph.select_toolbox_node_type("or")
+        
+        result = self.graph.to_slint_format()
+        
+        assert "toolbox_items" in result
+        assert "toolbox_creation_mode" in result
+        assert result["toolbox_creation_mode"] == True
+        
+        # Check toolbox items structure
+        toolbox_items = result["toolbox_items"]
+        assert len(toolbox_items) > 0
+        
+        # Check that OR is selected
+        or_item = next(item for item in toolbox_items if item["node_type"] == "or")
+        assert or_item["is_selected"] == True
+    
+    def test_to_slint_format_no_toolbox_selection(self):
+        """Test Slint format when no toolbox item is selected"""
+        result = self.graph.to_slint_format()
+        
+        assert "toolbox_items" in result
+        assert "toolbox_creation_mode" in result
+        assert result["toolbox_creation_mode"] == False
+        
+        # Check that no items are selected
+        toolbox_items = result["toolbox_items"]
+        for item in toolbox_items:
+            assert item["is_selected"] == False
+    
+    def test_toolbox_workflow_complete(self):
+        """Test complete toolbox workflow"""
+        initial_node_count = len(self.graph.nodes)
+        
+        # 1. Select node type from toolbox
+        result1 = self.graph.select_toolbox_node_type("and")
+        assert result1 == True
+        assert self.graph.toolbox_creation_mode == True
+        
+        # 2. Create node at position
+        result2 = self.graph.create_node_at_position("and", 200.0, 150.0)
+        assert result2 == True
+        assert len(self.graph.nodes) == initial_node_count + 1
+        assert self.graph.toolbox_creation_mode == False  # Back to idle
+        
+        # 3. Verify created node
+        and_nodes = [n for n in self.graph.nodes.values() if n.node_type == "and"]
+        assert len(and_nodes) == 1
+        
+        created_node = and_nodes[0]
+        assert created_node.x == 200.0
+        assert created_node.y == 150.0
+        assert created_node.label == "AND"
+    
+    def test_toolbox_toggle_selection(self):
+        """Test toggling toolbox selection (select same item twice)"""
+        # First selection
+        result1 = self.graph.select_toolbox_node_type("not")
+        assert result1 == True
+        assert self.graph.selected_node_type == "not"
+        
+        # Second selection of same type should work (selection logic is in main.py)
+        result2 = self.graph.select_toolbox_node_type("not")
+        assert result2 == True
+        assert self.graph.selected_node_type == "not"  # Still selected
+    
+    def test_toolbox_switch_selection(self):
+        """Test switching between different toolbox selections"""
+        # Select first type
+        self.graph.select_toolbox_node_type("input")
+        assert self.graph.selected_node_type == "input"
+        
+        # Switch to different type
+        result = self.graph.select_toolbox_node_type("output")
+        assert result == True
+        assert self.graph.selected_node_type == "output"
+        assert self.graph.toolbox_creation_mode == True
+    
+    def test_node_creation_with_existing_nodes(self):
+        """Test creating nodes when graph already has nodes"""
+        # Add existing node
+        existing_node = Node.create("existing", NODE_REGISTRY.get_definition("input"), 0, 0)
+        self.graph.add_node(existing_node)
+        
+        initial_count = len(self.graph.nodes)
+        
+        # Create new node
+        result = self.graph.create_node_at_position("and", 300.0, 300.0)
+        
+        assert result == True
+        assert len(self.graph.nodes) == initial_count + 1
+        
+        # Verify both nodes exist
+        node_types = [n.node_type for n in self.graph.nodes.values()]
+        assert "input" in node_types
+        assert "and" in node_types

@@ -105,6 +105,20 @@ def main():
         main_window.pending_start_y = graph_data['pending_start_y']
         main_window.pending_end_x = graph_data['pending_end_x']
         main_window.pending_end_y = graph_data['pending_end_y']
+        
+        # Convert toolbox items to Slint format
+        slint_toolbox_items = []
+        for item in graph_data['toolbox_items']:
+            slint_item = {
+                "node_type": str(item['node_type']),
+                "label": str(item['label']),
+                "color": str(item['color']),
+                "is_selected": bool(item['is_selected'])
+            }
+            slint_toolbox_items.append(slint_item)
+        
+        main_window.toolbox_items = slint.ListModel(slint_toolbox_items)
+        main_window.toolbox_creation_mode = graph_data['toolbox_creation_mode']
     
     def handle_graph_pointer_event(kind, x, y):
         """Handle pointer event on graph area"""
@@ -117,14 +131,19 @@ def main():
         ui_needs_refresh = False
         
         if kind == "down":
-            # Check for double-click
-            current_time = time.time()
-            if graph.is_double_click(current_time):
-                # Handle double-click for label editing
-                ui_needs_refresh = graph.handle_double_click(x, y)
+            # Check if we're in toolbox creation mode first
+            if graph.toolbox_creation_mode and graph.selected_node_type:
+                # Create new node at click position
+                ui_needs_refresh = graph.create_node_at_position(graph.selected_node_type, x, y)
             else:
-                # Handle single click for selection/movement
-                ui_needs_refresh = graph.handle_pointer_down(x, y)
+                # Check for double-click
+                current_time = time.time()
+                if graph.is_double_click(current_time):
+                    # Handle double-click for label editing
+                    ui_needs_refresh = graph.handle_double_click(x, y)
+                else:
+                    # Handle single click for selection/movement/connection creation
+                    ui_needs_refresh = graph.handle_pointer_down(x, y)
         elif kind == "move":
             ui_needs_refresh = graph.handle_pointer_move(x, y)
         elif kind == "up":
@@ -135,7 +154,10 @@ def main():
         
         # Refresh UI if needed
         if ui_needs_refresh:
-            logger.debug(f"Refreshing UI - Selected node: {graph.get_selected_node()}")
+            if graph.toolbox_creation_mode:
+                logger.debug(f"Refreshing UI - Toolbox creation mode, selected type: {graph.selected_node_type}")
+            else:
+                logger.debug(f"Refreshing UI - Selected node: {graph.get_selected_node()}")
             refresh_ui_data()
         else:
             logger.debug("UI refresh not needed")
@@ -209,6 +231,26 @@ def main():
                 logger.debug("No item selected for deletion")
         
         main_window.delete_clicked = handle_delete_clicked
+        
+        # Connect toolbox callback
+        def handle_toolbox_node_type_clicked(node_type):
+            """Handle toolbox node type selection"""
+            if graph is None:
+                return
+            
+            logger.debug(f"Toolbox node type clicked: {node_type}")
+            
+            # If the same node type is already selected, deselect it
+            if graph.selected_node_type == node_type:
+                ui_needs_refresh = graph.deselect_toolbox_node_type()
+            else:
+                # Select the new node type
+                ui_needs_refresh = graph.select_toolbox_node_type(node_type)
+            
+            if ui_needs_refresh:
+                refresh_ui_data()
+        
+        main_window.toolbox_node_type_clicked = handle_toolbox_node_type_clicked
         
         logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
         
