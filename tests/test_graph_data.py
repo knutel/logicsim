@@ -434,6 +434,121 @@ class TestGraphData:
             assert self.graph.connections["conn1"] == self.connection
             mock_logger.debug.assert_called_once_with("Added connection: input1:out -> and1:in1")
     
+    def test_set_input_value_valid_input_node(self):
+        """Test setting value on a valid input node"""
+        self.graph.add_node(self.input_node)
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            # Set input to True
+            result = self.graph.set_input_value("input1", True)
+            
+            assert result == True  # Should return True for UI refresh
+            assert self.graph.nodes["input1"].value == True
+            mock_logger.debug.assert_called_once_with("Set input node 'input1' value: None -> True")
+            
+            # Set input to False
+            mock_logger.reset_mock()
+            result = self.graph.set_input_value("input1", False)
+            
+            assert result == True
+            assert self.graph.nodes["input1"].value == False
+            mock_logger.debug.assert_called_once_with("Set input node 'input1' value: True -> False")
+    
+    def test_set_input_value_nonexistent_node(self):
+        """Test setting value on nonexistent node"""
+        with pytest.raises(ValueError, match="Node with ID 'nonexistent' does not exist"):
+            self.graph.set_input_value("nonexistent", True)
+    
+    def test_set_input_value_non_input_node(self):
+        """Test setting value on non-input node types"""
+        self.graph.add_node(self.and_gate)
+        
+        with pytest.raises(ValueError, match="Node 'and1' is not an input node \\(type: and\\)"):
+            self.graph.set_input_value("and1", True)
+        
+        # Test with output node
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 300, 100, label="OUT")
+        self.graph.add_node(output_node)
+        
+        with pytest.raises(ValueError, match="Node 'output1' is not an input node \\(type: output\\)"):
+            self.graph.set_input_value("output1", False)
+    
+    def test_get_node_value_existing_node(self):
+        """Test getting value from existing nodes"""
+        # Test input node with no value set
+        self.graph.add_node(self.input_node)
+        assert self.graph.get_node_value("input1") is None
+        
+        # Set value and test again
+        self.graph.set_input_value("input1", True)
+        assert self.graph.get_node_value("input1") == True
+        
+        # Test with False value
+        self.graph.set_input_value("input1", False)
+        assert self.graph.get_node_value("input1") == False
+        
+        # Test other node types with values
+        and_node = Node.create("and1", NODE_REGISTRY.get_definition("and"), 100, 100, value=True)
+        self.graph.add_node(and_node)
+        assert self.graph.get_node_value("and1") == True
+    
+    def test_get_node_value_nonexistent_node(self):
+        """Test getting value from nonexistent node"""
+        assert self.graph.get_node_value("nonexistent") is None
+    
+    def test_input_value_integration_with_slint_format(self):
+        """Test that set input values appear in Slint format"""
+        # Create multiple input nodes
+        input_a = Node.create("input_a", NODE_REGISTRY.get_definition("input"), 0, 0, label="A")
+        input_b = Node.create("input_b", NODE_REGISTRY.get_definition("input"), 0, 50, label="B")
+        
+        self.graph.add_node(input_a)
+        self.graph.add_node(input_b)
+        
+        # Set different values
+        self.graph.set_input_value("input_a", True)
+        self.graph.set_input_value("input_b", False)
+        
+        # Check Slint format includes the values
+        result = self.graph.to_slint_format()
+        
+        node_values = {node["id"]: node["value"] for node in result["nodes"]}
+        assert node_values["input_a"] == True
+        assert node_values["input_b"] == False
+    
+    def test_input_value_workflow_scenario(self):
+        """Test complete workflow of setting and getting input values"""
+        # Create a circuit with multiple inputs
+        input_nodes = []
+        for i, label in enumerate(["A", "B", "C"]):
+            node = Node.create(f"input_{label.lower()}", NODE_REGISTRY.get_definition("input"), 
+                             i * 60, 0, label=label)
+            input_nodes.append(node)
+            self.graph.add_node(node)
+        
+        # Initially all should be None
+        for node in input_nodes:
+            assert self.graph.get_node_value(node.id) is None
+        
+        # Set values sequentially
+        self.graph.set_input_value("input_a", True)
+        self.graph.set_input_value("input_b", False)
+        self.graph.set_input_value("input_c", True)
+        
+        # Verify all values are set correctly
+        assert self.graph.get_node_value("input_a") == True
+        assert self.graph.get_node_value("input_b") == False
+        assert self.graph.get_node_value("input_c") == True
+        
+        # Toggle some values
+        self.graph.set_input_value("input_a", False)
+        self.graph.set_input_value("input_b", True)
+        
+        # Verify changes
+        assert self.graph.get_node_value("input_a") == False
+        assert self.graph.get_node_value("input_b") == True
+        assert self.graph.get_node_value("input_c") == True  # Unchanged
+    
     def test_get_connector_absolute_position(self):
         """Test getting absolute position of connectors"""
         self.graph.add_node(self.input_node)

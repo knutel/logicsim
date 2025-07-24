@@ -239,6 +239,48 @@ class GraphData:
         self.connections[connection.id] = connection
         self.logger.debug(f"Added connection: {connection.from_node_id}:{connection.from_connector_id} -> {connection.to_node_id}:{connection.to_connector_id}")
     
+    def set_input_value(self, node_id: str, value: bool) -> bool:
+        """
+        Set the value of an input node.
+        
+        Args:
+            node_id: ID of the input node to set
+            value: Boolean value to assign to the input node
+            
+        Returns:
+            bool: True if UI should be refreshed
+            
+        Raises:
+            ValueError: If node doesn't exist or is not an input node
+        """
+        if node_id not in self.nodes:
+            raise ValueError(f"Node with ID '{node_id}' does not exist")
+        
+        node = self.nodes[node_id]
+        if node.node_type != "input":
+            raise ValueError(f"Node '{node_id}' is not an input node (type: {node.node_type})")
+        
+        old_value = node.value
+        node.value = value
+        
+        self.logger.debug(f"Set input node '{node_id}' value: {old_value} -> {value}")
+        return True  # UI should refresh to show new value
+    
+    def get_node_value(self, node_id: str) -> Optional[bool]:
+        """
+        Get the current value of a node.
+        
+        Args:
+            node_id: ID of the node to get value from
+            
+        Returns:
+            Optional[bool]: The node's current value, or None if node doesn't exist or has no value
+        """
+        if node_id not in self.nodes:
+            return None
+        
+        return self.nodes[node_id].value
+    
     def get_connector_absolute_position(self, node_id: str, connector_id: str) -> tuple[float, float]:
         """Get the absolute position of a connector"""
         node = self.nodes[node_id]
