@@ -5,6 +5,7 @@ Graph data structures and management for LogicSim
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from enum import Enum
+from collections import deque
 import logging
 import math
 import time
@@ -228,6 +229,10 @@ class GraphData:
         self.toolbox_creation_mode: bool = False
         
         self.logger = logging.getLogger(__name__)
+        
+        # Import here to avoid circular imports
+        from .simulation import CircuitEvaluator
+        self.evaluator = CircuitEvaluator()
     
     def add_node(self, node: Node) -> None:
         """Add a node to the graph"""
@@ -280,6 +285,125 @@ class GraphData:
             return None
         
         return self.nodes[node_id].value
+    
+    def _get_evaluation_order(self) -> List[str]:
+        """
+        Get the order in which nodes should be evaluated using topological sorting.
+        
+        Returns:
+            List[str]: List of node IDs in evaluation order
+            
+        Raises:
+            ValueError: If circular dependencies are detected
+        """
+        # Build adjacency list representing dependencies
+        # dependency_graph[node_id] = list of nodes that depend on this node
+        dependency_graph: Dict[str, List[str]] = {node_id: [] for node_id in self.nodes.keys()}
+        in_degree: Dict[str, int] = {node_id: 0 for node_id in self.nodes.keys()}
+        
+        # Count input connections for each node to calculate in-degree
+        for connection in self.connections.values():
+            from_node = connection.from_node_id
+            to_node = connection.to_node_id
+            
+            # Add dependency: from_node must be evaluated before to_node
+            dependency_graph[from_node].append(to_node)
+            in_degree[to_node] += 1
+        
+        # Initialize queue with nodes that have no dependencies (in-degree = 0)
+        # Input nodes and unconnected nodes start here
+        queue = deque()
+        for node_id, degree in in_degree.items():
+            if degree == 0:
+                queue.append(node_id)
+        
+        evaluation_order = []
+        
+        # Process nodes in topological order
+        while queue:
+            current_node = queue.popleft()
+            evaluation_order.append(current_node)
+            
+            # Remove this node from the graph and update in-degrees
+            for dependent_node in dependency_graph[current_node]:
+                in_degree[dependent_node] -= 1
+                if in_degree[dependent_node] == 0:
+                    queue.append(dependent_node)
+        
+        # Check for circular dependencies
+        if len(evaluation_order) != len(self.nodes):
+            remaining_nodes = set(self.nodes.keys()) - set(evaluation_order)
+            raise ValueError(f"Circular dependency detected involving nodes: {remaining_nodes}")
+        
+        self.logger.debug(f"Node evaluation order: {evaluation_order}")
+        return evaluation_order
+    
+    def simulate(self) -> bool:
+        """
+        Simulate the entire circuit by evaluating all nodes in proper dependency order.
+        
+        Returns:
+            bool: True if simulation succeeded, False if there were errors
+            
+        Raises:
+            ValueError: If input nodes have no values set or circular dependencies exist
+        """
+        self.logger.info("Starting circuit simulation")
+        
+        # Validate that all input nodes have values set
+        input_nodes = [node for node in self.nodes.values() if node.node_type == "input"]
+        unset_inputs = [node.id for node in input_nodes if node.value is None]
+        
+        if unset_inputs:
+            raise ValueError(f"Input nodes must have values set before simulation: {unset_inputs}")
+        
+        # Get evaluation order using topological sorting
+        try:
+            evaluation_order = self._get_evaluation_order()
+        except ValueError as e:
+            self.logger.error(f"Failed to determine evaluation order: {e}")
+            raise
+        
+        # Clear existing values for non-input nodes
+        for node in self.nodes.values():
+            if node.node_type != "input":
+                node.value = None
+        
+        # Evaluate nodes in dependency order
+        evaluated_count = 0
+        for node_id in evaluation_order:
+            node = self.nodes[node_id]
+            
+            # Skip input nodes - they already have values
+            if node.node_type == "input":
+                self.logger.debug(f"Skipping input node {node_id}: value={node.value}")
+                continue
+            
+            # Collect input values for this node
+            input_values = []
+            for connection in self.connections.values():
+                if connection.to_node_id == node_id:
+                    source_node = self.nodes[connection.from_node_id]
+                    
+                    if source_node.value is None:
+                        # This shouldn't happen with proper topological sorting
+                        raise ValueError(f"Source node {source_node.id} has no value when evaluating {node_id}")
+                    
+                    input_values.append(source_node.value)
+                    self.logger.debug(f"Input to {node_id} from {source_node.id}: {source_node.value}")
+            
+            # Evaluate the node using the circuit evaluator
+            try:
+                result = self.evaluator.evaluate_node(node, input_values)
+                node.value = result
+                evaluated_count += 1
+                self.logger.debug(f"Evaluated {node_id} ({node.node_type}): inputs={input_values} -> {result}")
+            except ValueError as e:
+                self.logger.error(f"Failed to evaluate node {node_id}: {e}")
+                raise ValueError(f"Evaluation failed for node {node_id}: {e}")
+        
+        self.logger.info(f"Circuit simulation completed: evaluated {evaluated_count} nodes")
+        return True
     
     def get_connector_absolute_position(self, node_id: str, connector_id: str) -> tuple[float, float]:
         """Get the absolute position of a connector"""

@@ -394,8 +394,7 @@ class TestGraphData:
         # Create test connection
         self.connection = Connection("conn1", "input1", "out", "and1", "in1")
     
-    @patch('logicsim.graph_data.logging.getLogger')
-    def test_graph_data_initialization(self, mock_logger):
+    def test_graph_data_initialization(self):
         """Test GraphData initialization"""
         graph = GraphData()
         
@@ -403,7 +402,8 @@ class TestGraphData:
         assert isinstance(graph.connections, dict)
         assert len(graph.nodes) == 0
         assert len(graph.connections) == 0
-        mock_logger.assert_called_once()
+        assert hasattr(graph, 'evaluator')
+        assert graph.evaluator is not None
     
     def test_add_node(self):
         """Test adding nodes to the graph"""
@@ -2725,3 +2725,331 @@ class TestGraphDataToolbox:
         node_types = [n.node_type for n in self.graph.nodes.values()]
         assert "input" in node_types
         assert "and" in node_types
+
+
+class TestCircuitSimulation:
+    """Test cases for circuit simulation functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create a simple test circuit: Input A -> NOT gate -> Output
+        self.input_a = Node.create("input_a", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+        self.not_gate = Node.create("not_gate", NODE_REGISTRY.get_definition("not"), 200, 50, label="NOT")
+        self.output = Node.create("output", NODE_REGISTRY.get_definition("output"), 350, 50, label="OUT")
+        
+        self.graph.add_node(self.input_a)
+        self.graph.add_node(self.not_gate)
+        self.graph.add_node(self.output)
+        
+        # Connect: A -> NOT -> OUT
+        self.conn1 = Connection("c1", "input_a", "out", "not_gate", "in")
+        self.conn2 = Connection("c2", "not_gate", "out", "output", "in")
+        
+        self.graph.add_connection(self.conn1)
+        self.graph.add_connection(self.conn2)
+    
+    def test_simulate_simple_not_gate_true_input(self):
+        """Test simulation of NOT gate with true input"""
+        # Set input to True
+        self.graph.set_input_value("input_a", True)
+        
+        # Run simulation
+        result = self.graph.simulate()
+        
+        assert result == True
+        assert self.graph.get_node_value("input_a") == True
+        assert self.graph.get_node_value("not_gate") == False  # NOT True = False
+        assert self.graph.get_node_value("output") == False   # Pass through from NOT gate
+    
+    def test_simulate_simple_not_gate_false_input(self):
+        """Test simulation of NOT gate with false input"""
+        # Set input to False
+        self.graph.set_input_value("input_a", False)
+        
+        # Run simulation
+        result = self.graph.simulate()
+        
+        assert result == True
+        assert self.graph.get_node_value("input_a") == False
+        assert self.graph.get_node_value("not_gate") == True   # NOT False = True
+        assert self.graph.get_node_value("output") == True    # Pass through from NOT gate
+    
+    def test_simulate_without_input_values_raises_error(self):
+        """Test that simulation fails if input values are not set"""
+        # Don't set any input values
+        
+        with pytest.raises(ValueError, match="Input nodes must have values set before simulation"):
+            self.graph.simulate()
+    
+    def test_simulate_complex_circuit(self):
+        """Test simulation of more complex circuit with AND and OR gates"""
+        # Create a more complex circuit: (A AND B) OR C -> Output
+        graph = GraphData()
+        
+        # Create nodes
+        input_a = Node.create("a", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+        input_b = Node.create("b", NODE_REGISTRY.get_definition("input"), 50, 150, label="B")
+        input_c = Node.create("c", NODE_REGISTRY.get_definition("input"), 50, 250, label="C")
+        and_gate = Node.create("and", NODE_REGISTRY.get_definition("and"), 200, 100, label="AND")
+        or_gate = Node.create("or", NODE_REGISTRY.get_definition("or"), 350, 175, label="OR")
+        output = Node.create("out", NODE_REGISTRY.get_definition("output"), 500, 175, label="OUT")
+        
+        graph.add_node(input_a)
+        graph.add_node(input_b)
+        graph.add_node(input_c)
+        graph.add_node(and_gate)
+        graph.add_node(or_gate)
+        graph.add_node(output)
+        
+        # Create connections: A -> AND, B -> AND, AND -> OR, C -> OR, OR -> OUT
+        connections = [
+            Connection("c1", "a", "out", "and", "in1"),
+            Connection("c2", "b", "out", "and", "in2"),
+            Connection("c3", "and", "out", "or", "in1"),
+            Connection("c4", "c", "out", "or", "in2"),
+            Connection("c5", "or", "out", "out", "in")
+        ]
+        
+        for conn in connections:
+            graph.add_connection(conn)
+        
+        # Test case: A=True, B=False, C=False -> (True AND False) OR False = False OR False = False
+        graph.set_input_value("a", True)
+        graph.set_input_value("b", False)
+        graph.set_input_value("c", False)
+        
+        result = graph.simulate()
+        
+        assert result == True
+        assert graph.get_node_value("a") == True
+        assert graph.get_node_value("b") == False
+        assert graph.get_node_value("c") == False
+        assert graph.get_node_value("and") == False   # True AND False = False
+        assert graph.get_node_value("or") == False    # False OR False = False
+        assert graph.get_node_value("out") == False   # Pass through
+        
+        # Test case: A=True, B=True, C=False -> (True AND True) OR False = True OR False = True
+        graph.set_input_value("a", True)
+        graph.set_input_value("b", True)
+        graph.set_input_value("c", False)
+        
+        result = graph.simulate()
+        
+        assert result == True
+        assert graph.get_node_value("and") == True    # True AND True = True
+        assert graph.get_node_value("or") == True     # True OR False = True
+        assert graph.get_node_value("out") == True    # Pass through
+        
+        # Test case: A=False, B=False, C=True -> (False AND False) OR True = False OR True = True
+        graph.set_input_value("a", False)
+        graph.set_input_value("b", False)
+        graph.set_input_value("c", True)
+        
+        result = graph.simulate()
+        
+        assert result == True
+        assert graph.get_node_value("and") == False   # False AND False = False
+        assert graph.get_node_value("or") == True     # False OR True = True
+        assert graph.get_node_value("out") == True    # Pass through
+    
+    def test_topological_sorting_simple_chain(self):
+        """Test topological sorting for a simple chain of nodes"""
+        # Using the simple setup: Input -> NOT -> Output
+        order = self.graph._get_evaluation_order()
+        
+        # Input should come first, then NOT, then Output
+        input_index = order.index("input_a")
+        not_index = order.index("not_gate")
+        output_index = order.index("output")
+        
+        assert input_index < not_index
+        assert not_index < output_index
+    
+    def test_topological_sorting_complex_dependencies(self):
+        """Test topological sorting for complex dependency graph"""
+        # Create circuit with complex dependencies
+        graph = GraphData()
+        
+        # Create nodes: A, B -> AND -> NOT -> C, D -> OR -> Output
+        nodes = [
+            Node.create("a", NODE_REGISTRY.get_definition("input"), 0, 0),
+            Node.create("b", NODE_REGISTRY.get_definition("input"), 0, 50),
+            Node.create("c", NODE_REGISTRY.get_definition("input"), 0, 200),
+            Node.create("d", NODE_REGISTRY.get_definition("input"), 0, 250),
+            Node.create("and", NODE_REGISTRY.get_definition("and"), 100, 25),
+            Node.create("not", NODE_REGISTRY.get_definition("not"), 200, 25),
+            Node.create("or", NODE_REGISTRY.get_definition("or"), 100, 225),
+            Node.create("final_or", NODE_REGISTRY.get_definition("or"), 300, 125),
+            Node.create("out", NODE_REGISTRY.get_definition("output"), 400, 125)
+        ]
+        
+        for node in nodes:
+            graph.add_node(node)
+        
+        # Connections: A,B -> AND -> NOT, C,D -> OR, NOT,OR -> final_or -> out
+        connections = [
+            Connection("c1", "a", "out", "and", "in1"),
+            Connection("c2", "b", "out", "and", "in2"),
+            Connection("c3", "and", "out", "not", "in"),
+            Connection("c4", "c", "out", "or", "in1"),
+            Connection("c5", "d", "out", "or", "in2"),
+            Connection("c6", "not", "out", "final_or", "in1"),
+            Connection("c7", "or", "out", "final_or", "in2"),
+            Connection("c8", "final_or", "out", "out", "in")
+        ]
+        
+        for conn in connections:
+            graph.add_connection(conn)
+        
+        order = graph._get_evaluation_order()
+        
+        # Verify dependencies are respected
+        def get_index(node_id):
+            return order.index(node_id)
+        
+        # Inputs should come before their dependents
+        assert get_index("a") < get_index("and")
+        assert get_index("b") < get_index("and")
+        assert get_index("c") < get_index("or")
+        assert get_index("d") < get_index("or")
+        
+        # Gates should come before their dependents
+        assert get_index("and") < get_index("not")
+        assert get_index("not") < get_index("final_or")
+        assert get_index("or") < get_index("final_or")
+        assert get_index("final_or") < get_index("out")
+    
+    def test_circular_dependency_detection(self):
+        """Test that circular dependencies are detected and raise an error"""
+        # Create a circular dependency: A -> B -> C -> A
+        graph = GraphData()
+        
+        nodes = [
+            Node.create("a", NODE_REGISTRY.get_definition("not"), 0, 0),
+            Node.create("b", NODE_REGISTRY.get_definition("not"), 100, 0),
+            Node.create("c", NODE_REGISTRY.get_definition("not"), 200, 0)
+        ]
+        
+        for node in nodes:
+            graph.add_node(node)
+        
+        # Create circular connections
+        connections = [
+            Connection("c1", "a", "out", "b", "in"),
+            Connection("c2", "b", "out", "c", "in"),
+            Connection("c3", "c", "out", "a", "in")  # This creates the cycle
+        ]
+        
+        for conn in connections:
+            graph.add_connection(conn)
+        
+        with pytest.raises(ValueError, match="Circular dependency detected involving nodes"):
+            graph._get_evaluation_order()
+    
+    def test_simulate_demo_graph(self):
+        """Test simulation using the demo graph"""
+        demo_graph = create_demo_graph()
+        
+        # Set input values
+        demo_graph.set_input_value("input_a", True)
+        demo_graph.set_input_value("input_b", False)
+        demo_graph.set_input_value("input_c", True)
+        
+        # Run simulation
+        result = demo_graph.simulate()
+        
+        assert result == True
+        
+        # Verify expected results based on demo graph structure
+        # A=True, B=False, C=True
+        # AND gate: A AND B = True AND False = False
+        # OR gate: B OR C = False OR True = True
+        # NOT gate: NOT(AND result) = NOT(False) = True
+        # Output A: NOT result = True
+        # Output B: OR result = True
+        
+        assert demo_graph.get_node_value("input_a") == True
+        assert demo_graph.get_node_value("input_b") == False
+        assert demo_graph.get_node_value("input_c") == True
+        assert demo_graph.get_node_value("and_gate") == False  # True AND False
+        assert demo_graph.get_node_value("or_gate") == True    # False OR True
+        assert demo_graph.get_node_value("not_gate") == True   # NOT False
+        assert demo_graph.get_node_value("output_a") == True   # Pass through from NOT
+        assert demo_graph.get_node_value("output_b") == True   # Pass through from OR
+    
+    def test_simulate_clears_previous_values(self):
+        """Test that simulation clears previous non-input node values"""
+        # Set input and run simulation
+        self.graph.set_input_value("input_a", True)
+        self.graph.simulate()
+        
+        # Verify initial results
+        assert self.graph.get_node_value("not_gate") == False
+        assert self.graph.get_node_value("output") == False
+        
+        # Change input and run simulation again
+        self.graph.set_input_value("input_a", False)
+        self.graph.simulate()
+        
+        # Verify that values were properly updated
+        assert self.graph.get_node_value("not_gate") == True
+        assert self.graph.get_node_value("output") == True
+    
+    def test_simulate_with_disconnected_nodes(self):
+        """Test simulation with disconnected nodes (nodes with no inputs)"""
+        # Add a disconnected input node
+        disconnected = Node.create("disconnected", NODE_REGISTRY.get_definition("input"), 500, 50, label="DISC")
+        self.graph.add_node(disconnected)
+        
+        # Set values for all input nodes
+        self.graph.set_input_value("input_a", True)
+        self.graph.set_input_value("disconnected", False)
+        
+        # Simulation should still work
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Both input nodes should maintain their values
+        assert self.graph.get_node_value("input_a") == True
+        assert self.graph.get_node_value("disconnected") == False
+    
+    def test_simulate_logging(self):
+        """Test that simulation produces appropriate log messages"""
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.set_input_value("input_a", True)
+            
+            result = self.graph.simulate()
+            
+            assert result == True
+            
+            # Verify logging calls were made
+            mock_logger.info.assert_any_call("Starting circuit simulation")
+            mock_logger.info.assert_any_call("Circuit simulation completed: evaluated 2 nodes")
+            
+            # Verify debug logging for evaluation
+            mock_logger.debug.assert_any_call("Node evaluation order: ['input_a', 'not_gate', 'output']")
+    
+    def test_partial_input_setting_error(self):
+        """Test error when only some inputs are set"""
+        # Create circuit with multiple inputs
+        graph = GraphData()
+        
+        input_a = Node.create("a", NODE_REGISTRY.get_definition("input"), 0, 0)
+        input_b = Node.create("b", NODE_REGISTRY.get_definition("input"), 0, 50)
+        and_gate = Node.create("and", NODE_REGISTRY.get_definition("and"), 100, 25)
+        
+        graph.add_node(input_a)
+        graph.add_node(input_b) 
+        graph.add_node(and_gate)
+        
+        graph.add_connection(Connection("c1", "a", "out", "and", "in1"))
+        graph.add_connection(Connection("c2", "b", "out", "and", "in2"))
+        
+        # Set only one input
+        graph.set_input_value("a", True)
+        # Don't set input_b
+        
+        with pytest.raises(ValueError, match="Input nodes must have values set before simulation: \\['b'\\]"):
+            graph.simulate()
