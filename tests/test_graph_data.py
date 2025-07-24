@@ -318,6 +318,43 @@ class TestNode:
         assert out.x_offset == 96.0
         assert out.y_offset == 36.0
         assert out.is_input == False
+    
+    def test_node_state_initialization_default(self):
+        """Test that nodes are initialized with None value by default"""
+        definition = NODE_REGISTRY.get_definition("input")
+        node = Node.create("test_input", definition, 0.0, 0.0)
+        
+        assert node.value is None
+    
+    def test_node_state_initialization_with_value(self):
+        """Test creating nodes with specific state values"""
+        definition = NODE_REGISTRY.get_definition("input")
+        
+        # Test with True value
+        node_true = Node.create("input_true", definition, 0.0, 0.0, value=True)
+        assert node_true.value is True
+        
+        # Test with False value  
+        node_false = Node.create("input_false", definition, 0.0, 0.0, value=False)
+        assert node_false.value is False
+        
+        # Test with None value explicitly
+        node_none = Node.create("input_none", definition, 0.0, 0.0, value=None)
+        assert node_none.value is None
+    
+    def test_node_state_manual_creation(self):
+        """Test manual node creation with state values"""
+        connectors = [Connector("out", 46.0, 21.0, False)]
+        
+        # Test with different state values
+        node_high = Node("test1", "input", 0.0, 0.0, 50.0, 50.0, "HIGH", "green", connectors, True)
+        assert node_high.value is True
+        
+        node_low = Node("test2", "input", 0.0, 0.0, 50.0, 50.0, "LOW", "red", connectors, False)
+        assert node_low.value is False
+        
+        node_undefined = Node("test3", "input", 0.0, 0.0, 50.0, 50.0, "UNDEF", "gray", connectors, None)
+        assert node_undefined.value is None
 
 
 class TestConnection:
@@ -470,6 +507,10 @@ class TestGraphData:
         assert connector_data["x"] == 96.0  # 50 + 46
         assert connector_data["y"] == 71.0  # 50 + 21
         assert connector_data["is_input"] == False
+        
+        # Check that value field is included (defaults to None)
+        assert "value" in input_node_data
+        assert input_node_data["value"] is None
     
     def test_to_slint_format_with_connections(self):
         """Test Slint format conversion with connections"""
@@ -489,6 +530,33 @@ class TestGraphData:
         assert conn_data["start_y"] == 74.0  # 50 + 21 + 3
         assert conn_data["end_x"] == 199.0   # 200 + (-4) + 3
         assert conn_data["end_y"] == 94.0    # 80 + 11 + 3 (0.25 * 60 - 4 = 11)
+    
+    def test_to_slint_format_with_node_states(self):
+        """Test Slint format conversion includes node state values"""
+        # Create nodes with different state values
+        input_def = NODE_REGISTRY.get_definition("input")
+        and_def = NODE_REGISTRY.get_definition("and")
+        
+        input_true = Node.create("input_true", input_def, 0.0, 0.0, value=True)
+        input_false = Node.create("input_false", input_def, 100.0, 0.0, value=False)
+        and_undefined = Node.create("and_undef", and_def, 200.0, 0.0, value=None)
+        
+        self.graph.add_node(input_true)
+        self.graph.add_node(input_false)
+        self.graph.add_node(and_undefined)
+        
+        result = self.graph.to_slint_format()
+        
+        # Verify all nodes have value field
+        assert len(result["nodes"]) == 3
+        for node_data in result["nodes"]:
+            assert "value" in node_data
+        
+        # Check specific values
+        node_values = {node["id"]: node["value"] for node in result["nodes"]}
+        assert node_values["input_true"] is True
+        assert node_values["input_false"] is False
+        assert node_values["and_undef"] is None
     
     def test_selection_initialization(self):
         """Test that selection is initially None"""

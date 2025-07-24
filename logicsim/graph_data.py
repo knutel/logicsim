@@ -3,7 +3,7 @@ Graph data structures and management for LogicSim
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from enum import Enum
 import logging
 import math
@@ -70,9 +70,10 @@ class Node:
     label: str
     color: str
     connectors: List[Connector]
+    value: Optional[bool] = None  # Node state for simulation
     
     @classmethod
-    def create(cls, id: str, node_definition: NodeDefinition, x: float, y: float, width: float = None, height: float = None, label: str = None) -> 'Node':
+    def create(cls, id: str, node_definition: NodeDefinition, x: float, y: float, width: float = None, height: float = None, label: str = None, value: Optional[bool] = None) -> 'Node':
         """Create a node with auto-generated connectors based on node definition"""
         # Use defaults from definition if not provided
         if width is None:
@@ -85,7 +86,7 @@ class Node:
         # Generate connectors from definition
         connectors = [conn_def.create_connector(width, height) for conn_def in node_definition.connectors]
         
-        return cls(id, node_definition.name, x, y, width, height, label, node_definition.color, connectors)
+        return cls(id, node_definition.name, x, y, width, height, label, node_definition.color, connectors, value)
 
 
 @dataclass
@@ -956,7 +957,8 @@ class GraphData:
                 "height": node.height,
                 "label": node.label,
                 "color": node.color,
-                "connectors": connectors_data
+                "connectors": connectors_data,
+                "value": node.value
             }
             slint_nodes.append(slint_node)
         
