@@ -1394,13 +1394,24 @@ class TestGraphDataLabelEditing:
         # Original node label should be unchanged until complete
         assert self.graph.nodes["input1"].label == "Test Input"
     
-    def test_handle_double_click_on_node(self):
-        """Test double-click handling on a node"""
+    def test_handle_double_click_on_input_node(self):
+        """Test double-click handling on input node toggles value"""
+        # Initially None
+        assert self.graph.get_node_value("input1") == None
+        
         result = self.graph.handle_double_click(60.0, 60.0)  # Click on input1
         
         assert result == True  # UI should refresh
-        assert self.graph.editing_node_id == "input1"
-        assert self.graph.editing_text == "Test Input"
+        assert self.graph.get_node_value("input1") == True  # Should be toggled to True
+        assert self.graph.editing_node_id == None  # Should not start editing
+    
+    def test_handle_double_click_on_non_input_node(self):
+        """Test double-click handling on non-input node starts label editing"""
+        result = self.graph.handle_double_click(220.0, 90.0)  # Click on and1 gate
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id == "and1"
+        assert self.graph.editing_text == "Test AND"
     
     def test_handle_double_click_on_empty_area(self):
         """Test double-click handling on empty area"""
@@ -3053,3 +3064,228 @@ class TestCircuitSimulation:
         
         with pytest.raises(ValueError, match="Input nodes must have values set before simulation: \\['b'\\]"):
             graph.simulate()
+
+
+class TestUIInteraction:
+    """Test cases for UI interaction functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures"""
+        self.graph = GraphData()
+        
+        # Create a simple test circuit with input and output nodes
+        self.input_a = Node.create("input_a", NODE_REGISTRY.get_definition("input"), 50, 50, label="A")
+        self.input_b = Node.create("input_b", NODE_REGISTRY.get_definition("input"), 50, 150, label="B")
+        self.and_gate = Node.create("and_gate", NODE_REGISTRY.get_definition("and"), 200, 100, label="AND")
+        self.output = Node.create("output", NODE_REGISTRY.get_definition("output"), 350, 100, label="OUT")
+        
+        self.graph.add_node(self.input_a)
+        self.graph.add_node(self.input_b)
+        self.graph.add_node(self.and_gate)
+        self.graph.add_node(self.output)
+        
+        # Connect: A,B -> AND -> OUT
+        self.graph.add_connection(Connection("c1", "input_a", "out", "and_gate", "in1"))
+        self.graph.add_connection(Connection("c2", "input_b", "out", "and_gate", "in2"))
+        self.graph.add_connection(Connection("c3", "and_gate", "out", "output", "in"))
+    
+    def test_toggle_input_node_cycle(self):
+        """Test that input node toggling cycles through None -> True -> False -> None"""
+        # Initially None
+        assert self.graph.get_node_value("input_a") == None
+        
+        # First toggle: None -> True
+        result = self.graph.toggle_input_node("input_a")
+        assert result == True
+        assert self.graph.get_node_value("input_a") == True
+        
+        # Second toggle: True -> False
+        result = self.graph.toggle_input_node("input_a")
+        assert result == True
+        assert self.graph.get_node_value("input_a") == False
+        
+        # Third toggle: False -> None
+        result = self.graph.toggle_input_node("input_a")
+        assert result == True
+        assert self.graph.get_node_value("input_a") == None
+        
+        # Fourth toggle: None -> True (cycle complete)
+        result = self.graph.toggle_input_node("input_a")
+        assert result == True
+        assert self.graph.get_node_value("input_a") == True
+    
+    def test_toggle_input_node_invalid_node(self):
+        """Test that toggling non-existent node raises error"""
+        with pytest.raises(ValueError, match="Node with ID 'nonexistent' does not exist"):
+            self.graph.toggle_input_node("nonexistent")
+    
+    def test_toggle_input_node_non_input(self):
+        """Test that toggling non-input node raises error"""
+        with pytest.raises(ValueError, match="Node 'and_gate' is not an input node"):
+            self.graph.toggle_input_node("and_gate")
+    
+    def test_reset_simulation_clears_all_values(self):
+        """Test that reset simulation clears all node values"""
+        # Set some values
+        self.graph.set_input_value("input_a", True)
+        self.graph.set_input_value("input_b", False)
+        
+        # Run simulation to populate other nodes
+        self.graph.simulate()
+        
+        # Verify values are set
+        assert self.graph.get_node_value("input_a") == True
+        assert self.graph.get_node_value("input_b") == False
+        assert self.graph.get_node_value("and_gate") == False
+        assert self.graph.get_node_value("output") == False
+        
+        # Reset simulation
+        result = self.graph.reset_simulation()
+        
+        # Verify all values are cleared
+        assert result == True  # UI should refresh
+        assert self.graph.get_node_value("input_a") == None
+        assert self.graph.get_node_value("input_b") == None
+        assert self.graph.get_node_value("and_gate") == None
+        assert self.graph.get_node_value("output") == None
+    
+    def test_reset_simulation_no_values_to_clear(self):
+        """Test that reset simulation returns False when no values to clear"""
+        # Don't set any values
+        result = self.graph.reset_simulation()
+        
+        # Should return False since nothing was cleared
+        assert result == False
+    
+    def test_handle_double_click_input_node_toggleing(self):
+        """Test that double-clicking input node toggles its value"""
+        # Click on input node position (50, 50 is center, but we need to click within bounds)
+        # Input node is 50x50 at position (50,50), so clicking at (60,60) should hit it
+        
+        # Initial value is None
+        assert self.graph.get_node_value("input_a") == None
+        
+        # Double-click on input node
+        result = self.graph.handle_double_click(60.0, 60.0)
+        
+        assert result == True  # UI should refresh
+        assert self.graph.get_node_value("input_a") == True  # Should be toggled to True
+        
+        # Double-click again
+        result = self.graph.handle_double_click(60.0, 60.0)
+        
+        assert result == True
+        assert self.graph.get_node_value("input_a") == False  # Should be toggled to False
+    
+    def test_handle_double_click_non_input_node_starts_editing(self):
+        """Test that double-clicking non-input node starts label editing"""
+        # Double-click on AND gate (200x60 at position 200,100, so click at 220,110)
+        result = self.graph.handle_double_click(220.0, 110.0)
+        
+        assert result == True  # UI should refresh
+        assert self.graph.editing_node_id == "and_gate"
+        assert self.graph.editing_text == "AND"  # Should be initialized with current label
+    
+    def test_handle_double_click_empty_area(self):
+        """Test that double-clicking empty area does nothing"""
+        result = self.graph.handle_double_click(1000.0, 1000.0)  # Far away from any nodes
+        
+        assert result == False  # No UI refresh needed
+        assert self.graph.editing_node_id == None
+    
+    def test_complete_simulation_workflow(self):
+        """Test complete user workflow: toggle inputs -> simulate -> reset"""
+        # Step 1: Toggle input values
+        self.graph.toggle_input_node("input_a")  # True
+        self.graph.toggle_input_node("input_b")  # True
+        
+        assert self.graph.get_node_value("input_a") == True
+        assert self.graph.get_node_value("input_b") == True
+        
+        # Step 2: Run simulation
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Verify results: True AND True = True
+        assert self.graph.get_node_value("and_gate") == True
+        assert self.graph.get_node_value("output") == True
+        
+        # Step 3: Reset simulation
+        reset_result = self.graph.reset_simulation()
+        assert reset_result == True
+        
+        # Verify all values cleared
+        assert self.graph.get_node_value("input_a") == None
+        assert self.graph.get_node_value("input_b") == None
+        assert self.graph.get_node_value("and_gate") == None
+        assert self.graph.get_node_value("output") == None
+    
+    def test_simulation_with_mixed_input_states(self):
+        """Test simulation with inputs in different states"""
+        # Set one input to True, leave other as None
+        self.graph.toggle_input_node("input_a")  # True
+        # input_b remains None
+        
+        # Simulation should fail because not all inputs are set
+        with pytest.raises(ValueError, match="Input nodes must have values set before simulation"):
+            self.graph.simulate()
+        
+        # Set second input
+        self.graph.toggle_input_node("input_b")  # True
+        
+        # Now simulation should work
+        result = self.graph.simulate()
+        assert result == True
+        assert self.graph.get_node_value("and_gate") == True  # True AND True
+    
+    def test_toggle_input_node_logging(self):
+        """Test that input node toggling produces appropriate log messages"""
+        with patch.object(self.graph, 'logger') as mock_logger:
+            self.graph.toggle_input_node("input_a")
+            
+            mock_logger.debug.assert_called_with("Toggled input node 'input_a' to: True")
+    
+    def test_reset_simulation_logging(self):
+        """Test that reset simulation produces appropriate log messages"""
+        with patch.object(self.graph, 'logger') as mock_logger:
+            # Set a value first
+            self.graph.set_input_value("input_a", True)
+            
+            # Reset
+            self.graph.reset_simulation()
+            
+            mock_logger.info.assert_called_with("Resetting circuit simulation")
+            mock_logger.debug.assert_called_with("Cleared all node values")
+            
+            # Test when no values to clear
+            mock_logger.reset_mock()
+            self.graph.reset_simulation()
+            
+            mock_logger.debug.assert_called_with("No node values to clear")
+    
+    def test_input_node_visual_state_after_toggle(self):
+        """Test that input node shows correct visual state after toggling"""
+        # Toggle to True
+        self.graph.toggle_input_node("input_a")
+        
+        # Check Slint format includes correct state
+        slint_data = self.graph.to_slint_format()
+        input_node_data = next(node for node in slint_data['nodes'] if node['id'] == 'input_a')
+        
+        assert input_node_data['value'] == True
+        
+        # Toggle to False
+        self.graph.toggle_input_node("input_a")
+        
+        slint_data = self.graph.to_slint_format()
+        input_node_data = next(node for node in slint_data['nodes'] if node['id'] == 'input_a')
+        
+        assert input_node_data['value'] == False
+        
+        # Toggle to None
+        self.graph.toggle_input_node("input_a")
+        
+        slint_data = self.graph.to_slint_format()
+        input_node_data = next(node for node in slint_data['nodes'] if node['id'] == 'input_a')
+        
+        assert input_node_data['value'] == None  # None should be preserved in to_slint_format

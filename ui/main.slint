@@ -28,6 +28,8 @@ export component MainWindow inherits Window {
     callback label-edit-changed(string);
     callback delete-clicked();
     callback toolbox-node-type-clicked(string);
+    callback simulate-clicked();
+    callback reset-clicked();
     
     
     VerticalBox {
@@ -98,11 +100,17 @@ export component MainWindow inherits Window {
             Button {
                 text: "Reset";
                 width: 80px;
+                clicked => {
+                    root.reset-clicked();
+                }
             }
             
             Button {
                 text: "Simulate";
                 width: 80px;
+                clicked => {
+                    root.simulate-clicked();
+                }
             }
             
             Button {

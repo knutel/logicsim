@@ -405,6 +405,60 @@ class GraphData:
         self.logger.info(f"Circuit simulation completed: evaluated {evaluated_count} nodes")
         return True
     
+    def reset_simulation(self) -> bool:
+        """
+        Reset the simulation by clearing all node values.
+        
+        Returns:
+            bool: True if UI should be refreshed (values were cleared)
+        """
+        self.logger.info("Resetting circuit simulation")
+        
+        values_cleared = False
+        for node in self.nodes.values():
+            if node.value is not None:
+                node.value = None
+                values_cleared = True
+        
+        if values_cleared:
+            self.logger.debug("Cleared all node values")
+            return True
+        else:
+            self.logger.debug("No node values to clear")
+            return False
+    
+    def toggle_input_node(self, node_id: str) -> bool:
+        """
+        Toggle the value of an input node between True, False, and None.
+        Cycle: None -> True -> False -> None
+        
+        Args:
+            node_id: ID of the input node to toggle
+            
+        Returns:
+            bool: True if UI should be refreshed
+            
+        Raises:
+            ValueError: If node doesn't exist or is not an input node
+        """
+        if node_id not in self.nodes:
+            raise ValueError(f"Node with ID '{node_id}' does not exist")
+        
+        node = self.nodes[node_id]
+        if node.node_type != "input":
+            raise ValueError(f"Node '{node_id}' is not an input node (type: {node.node_type})")
+        
+        # Cycle through: None -> True -> False -> None
+        if node.value is None:
+            node.value = True
+        elif node.value is True:
+            node.value = False
+        else:  # node.value is False
+            node.value = None
+        
+        self.logger.debug(f"Toggled input node '{node_id}' to: {node.value}")
+        return True  # UI should refresh to show new value
+    
     def get_connector_absolute_position(self, node_id: str, connector_id: str) -> tuple[float, float]:
         """Get the absolute position of a connector"""
         node = self.nodes[node_id]
@@ -1045,12 +1099,18 @@ class GraphData:
         self.editing_text = text
     
     def handle_double_click(self, x: float, y: float) -> bool:
-        """Handle double-click for label editing. Returns True if UI should be refreshed."""
+        """Handle double-click for input node toggling or label editing. Returns True if UI should be refreshed."""
         clicked_node_id = self.get_node_at_position(x, y)
         
         if clicked_node_id is not None:
-            # Start editing the clicked node's label
-            return self.start_label_edit(clicked_node_id)
+            clicked_node = self.nodes[clicked_node_id]
+            
+            # For input nodes, toggle their value instead of editing label
+            if clicked_node.node_type == "input":
+                return self.toggle_input_node(clicked_node_id)
+            else:
+                # For other nodes, start editing the label
+                return self.start_label_edit(clicked_node_id)
         
         return False
     
