@@ -77,7 +77,9 @@ def main():
                 "height": float(node['height']),
                 "label": str(node['label']),
                 "color": str(node['color']),
-                "connectors": slint.ListModel(slint_connectors)
+                "connectors": slint.ListModel(slint_connectors),
+                "value": bool(node['value']) if node['value'] is not None else False,
+                "has_value": node['value'] is not None
             }
             slint_nodes.append(slint_node)
         
