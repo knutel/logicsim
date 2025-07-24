@@ -1,5 +1,5 @@
 // Graph visualization component for LogicSim
-import { VerticalBox, LineEdit } from "std-widgets.slint";
+import { VerticalBox, LineEdit, ScrollView } from "std-widgets.slint";
 
 // Individual connector component (black dot)
 export component Connector {
@@ -140,102 +140,111 @@ export component GraphView {
     callback label-edit-completed(string, string);
     callback label-edit-changed(string);
     
-    // Touch area for capturing mouse clicks
-    TouchArea {
+    ScrollView {
         width: parent.width;
         height: parent.height;
-        
-        pointer-event(event) => {
-            if (event.kind == PointerEventKind.down) {
-                root.pointer-event("down", self.mouse-x / 1px, self.mouse-y / 1px);
-            } else if (event.kind == PointerEventKind.up) {
-                root.pointer-event("up", self.mouse-x / 1px, self.mouse-y / 1px);
-            } else if (event.kind == PointerEventKind.move) {
-                root.pointer-event("move", self.mouse-x / 1px, self.mouse-y / 1px);
-            }
-        }
-    }
-    
-    // Background
-    Rectangle {
-        width: parent.width;
-        height: parent.height;
-        background: #f5f5f5;
-        border-color: #cccccc;
-        border-width: 1px;
-    }
-    
-    // Dynamic nodes rendering - unified rectangle rendering for all node types
-    for node in nodes: Rectangle {
-        x: node.x;
-        y: node.y;
-        width: node.width;
-        height: node.height;
-        
-        // Single rectangle rendering for all node types
-        Rectangle {
-            width: parent.width;
-            height: parent.height;
-            background: node.node_type == "input" ? rgb(144, 238, 144) : 
-                       node.node_type == "output" ? rgb(255, 182, 193) : 
-                       rgb(224, 224, 224);
-            border-color: selected-nodes.length > 0 && selected-nodes[0] == node.id ? #0066cc : #404040;
-            border-width: selected-nodes.length > 0 && selected-nodes[0] == node.id ? 4px : 2px;
+        viewport-width: 5000px;
+        viewport-height: 5000px;
+
+        // Touch area for capturing mouse clicks
+        TouchArea {
+            width: parent.viewport-width;
+            height: parent.viewport-height;
             
-            VerticalBox {
-                spacing: 2px;
-                padding: 2px;
-                
-                Text {
-                    text: node.node_type;
-                    color: #000000;
-                    font-size: 10px;
-                    font-weight: 600;
-                    horizontal-alignment: center;
-                }
-                
-                if editing-node-id == node.id: LineEdit {
-                    text: editing-text;
-                    horizontal-alignment: center;
-                    font-size: 12px;
-                    
-                    accepted(text) => {
-                        root.label-edit-completed(node.id, text);
-                    }
-                    edited(text) => {
-                        root.label-edit-changed(text);
-                    }
-                }
-                if editing-node-id != node.id: Text {
-                    text: node.label;
-                    color: #000000;
-                    font-size: 12px;
-                    horizontal-alignment: center;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.pointer-event("down", self.mouse-x / 1px, self.mouse-y / 1px);
+                } else if (event.kind == PointerEventKind.up) {
+                    root.pointer-event("up", self.mouse-x / 1px, self.mouse-y / 1px);
+                } else if (event.kind == PointerEventKind.move) {
+                    root.pointer-event("move", self.mouse-x / 1px, self.mouse-y / 1px);
                 }
             }
         }
         
-        // Dynamic connectors rendering using data from Python
-        for connector in node.connectors: Connector {
-            x: connector.x - node.x;
-            y: connector.y - node.y;
+        // Background
+        Rectangle {
+            width: parent.viewport-width;
+            height: parent.viewport-height;
+            background: #f5f5f5;
+            border-color: #cccccc;
+            border-width: 1px;
+            clip: true;
+        
+        
+            // Dynamic nodes rendering - unified rectangle rendering for all node types
+            for node in nodes: Rectangle {
+                x: node.x;
+                y: node.y;
+                width: node.width;
+                height: node.height;
+                
+                // Single rectangle rendering for all node types
+                Rectangle {
+                    width: parent.width;
+                    height: parent.height;
+                    background: node.node_type == "input" ? rgb(144, 238, 144) : 
+                            node.node_type == "output" ? rgb(255, 182, 193) : 
+                            rgb(224, 224, 224);
+                    border-color: selected-nodes.length > 0 && selected-nodes[0] == node.id ? #0066cc : #404040;
+                    border-width: selected-nodes.length > 0 && selected-nodes[0] == node.id ? 4px : 2px;
+                    
+                    VerticalBox {
+                        spacing: 2px;
+                        padding: 2px;
+                        
+                        Text {
+                            text: node.node_type;
+                            color: #000000;
+                            font-size: 10px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+                        
+                        if editing-node-id == node.id: LineEdit {
+                            text: editing-text;
+                            horizontal-alignment: center;
+                            font-size: 12px;
+                            
+                            accepted(text) => {
+                                root.label-edit-completed(node.id, text);
+                            }
+                            edited(text) => {
+                                root.label-edit-changed(text);
+                            }
+                        }
+                        if editing-node-id != node.id: Text {
+                            text: node.label;
+                            color: #000000;
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+                
+                // Dynamic connectors rendering using data from Python
+                for connector in node.connectors: Connector {
+                    x: connector.x - node.x;
+                    y: connector.y - node.y;
+                }
+            }
+            
+            // Dynamic connections rendering
+            for connection in connections: ConnectionLine {
+                start-x: connection.start_x;
+                start-y: connection.start_y;
+                end-x: connection.end_x;
+                end-y: connection.end_y;
+                is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
+            }
+            
+            // Pending connection rendering (dotted line)
+            if creating-connection: PendingConnectionLine {
+                start-x: pending-start-x;
+                start-y: pending-start-y;
+                end-x: pending-end-x;
+                end-y: pending-end-y;
+            }
         }
-    }
-    
-    // Dynamic connections rendering
-    for connection in connections: ConnectionLine {
-        start-x: connection.start_x;
-        start-y: connection.start_y;
-        end-x: connection.end_x;
-        end-y: connection.end_y;
-        is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
-    }
-    
-    // Pending connection rendering (dotted line)
-    if creating-connection: PendingConnectionLine {
-        start-x: pending-start-x;
-        start-y: pending-start-y;
-        end-x: pending-end-x;
-        end-y: pending-end-y;
     }
 }
