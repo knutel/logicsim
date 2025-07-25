@@ -13,7 +13,7 @@ from logicsim.graph_data import (
     NODE_REGISTRY,
     Connector,
     Node,
-    Connection,
+    Net,
     GraphData,
     PointerState,
     create_demo_graph
@@ -357,24 +357,24 @@ class TestNode:
         assert node_undefined.value is None
 
 
-class TestConnection:
-    """Test cases for the Connection class"""
+class TestNet:
+    """Test cases for the Net class"""
     
-    def test_connection_creation(self):
-        """Test basic connection creation"""
-        connection = Connection(
-            id="conn1",
+    def test_net_creation(self):
+        """Test basic net creation"""
+        net = Net(
+            id="net1",
             from_node_id="node1",
             from_connector_id="out",
             to_node_id="node2",
             to_connector_id="in"
         )
         
-        assert connection.id == "conn1"
-        assert connection.from_node_id == "node1"
-        assert connection.from_connector_id == "out"
-        assert connection.to_node_id == "node2"
-        assert connection.to_connector_id == "in"
+        assert net.id == "net1"
+        assert net.from_node_id == "node1"
+        assert net.from_connector_id == "out"
+        assert net.to_node_id == "node2"
+        assert net.to_connector_id == "in"
 
 
 
@@ -391,17 +391,17 @@ class TestGraphData:
         self.and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 200.0, 80.0, label="AND")
         self.output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350.0, 90.0, label="OUT")
         
-        # Create test connection
-        self.connection = Connection("conn1", "input1", "out", "and1", "in1")
+        # Create test net
+        self.net = Net("conn1", "input1", "out", "and1", "in1")
     
     def test_graph_data_initialization(self):
         """Test GraphData initialization"""
         graph = GraphData()
         
         assert isinstance(graph.nodes, dict)
-        assert isinstance(graph.connections, dict)
+        assert isinstance(graph.nets, dict)
         assert len(graph.nodes) == 0
-        assert len(graph.connections) == 0
+        assert len(graph.nets) == 0
         assert hasattr(graph, 'evaluator')
         assert graph.evaluator is not None
     
@@ -425,14 +425,14 @@ class TestGraphData:
         assert "and1" in self.graph.nodes
         assert "output1" in self.graph.nodes
     
-    def test_add_connection(self):
-        """Test adding connections to the graph"""
+    def test_add_net(self):
+        """Test adding nets to the graph"""
         with patch.object(self.graph, 'logger') as mock_logger:
-            self.graph.add_connection(self.connection)
+            self.graph.add_net(self.net)
             
-            assert "conn1" in self.graph.connections
-            assert self.graph.connections["conn1"] == self.connection
-            mock_logger.debug.assert_called_once_with("Added connection: input1:out -> and1:in1")
+            assert "conn1" in self.graph.nets
+            assert self.graph.nets["conn1"] == self.net
+            mock_logger.debug.assert_called_once_with("Added net: input1:out -> and1:in1")
     
     def test_set_input_value_valid_input_node(self):
         """Test setting value on a valid input node"""
@@ -581,13 +581,13 @@ class TestGraphData:
         result = self.graph.to_slint_format()
         
         assert "nodes" in result
-        assert "connections" in result
+        assert "nets" in result
         assert "selected_nodes" in result
         assert isinstance(result["nodes"], list)
-        assert isinstance(result["connections"], list)
+        assert isinstance(result["nets"], list)
         assert isinstance(result["selected_nodes"], list)
         assert len(result["nodes"]) == 0
-        assert len(result["connections"]) == 0
+        assert len(result["nets"]) == 0
         assert len(result["selected_nodes"]) == 0
     
     def test_to_slint_format_with_nodes(self):
@@ -598,7 +598,7 @@ class TestGraphData:
         result = self.graph.to_slint_format()
         
         assert len(result["nodes"]) == 2
-        assert len(result["connections"]) == 0
+        assert len(result["nets"]) == 0
         
         # Check node structure
         node_ids = [node["id"] for node in result["nodes"]]
@@ -627,19 +627,19 @@ class TestGraphData:
         assert "value" in input_node_data
         assert input_node_data["value"] is None
     
-    def test_to_slint_format_with_connections(self):
-        """Test Slint format conversion with connections"""
+    def test_to_slint_format_with_nets(self):
+        """Test Slint format conversion with nets"""
         self.graph.add_node(self.input_node)
         self.graph.add_node(self.and_gate)
-        self.graph.add_connection(self.connection)
+        self.graph.add_net(self.net)
         
         result = self.graph.to_slint_format()
         
         assert len(result["nodes"]) == 2
-        assert len(result["connections"]) == 1
+        assert len(result["nets"]) == 1
         
-        # Check connection structure
-        conn_data = result["connections"][0]
+        # Check net structure
+        conn_data = result["nets"][0]
         assert conn_data["id"] == "conn1"
         assert conn_data["start_x"] == 99.0  # 50 + 46 + 3
         assert conn_data["start_y"] == 74.0  # 50 + 21 + 3
@@ -1158,24 +1158,24 @@ class TestGraphDataMovement:
         self.graph.handle_pointer_up(152, 132)  # Small movement
         assert self.graph.selected_node_id is None  # Deselected
     
-    def test_movement_with_connection_updates(self):
-        """Test that connections are properly updated when nodes move"""
-        # Add a connection between node1 and node2
-        connection = Connection("conn1", "node1", "out", "node2", "in1")
-        self.graph.add_connection(connection)
+    def test_movement_with_net_updates(self):
+        """Test that nets are properly updated when nodes move"""
+        # Add a net between node1 and node2
+        net = Net("conn1", "node1", "out", "node2", "in1")
+        self.graph.add_net(net)
         
-        # Get initial connection position
+        # Get initial net position
         initial_result = self.graph.to_slint_format()
-        initial_conn = initial_result["connections"][0]
+        initial_conn = initial_result["nets"][0]
         initial_start_x = initial_conn["start_x"]
         initial_start_y = initial_conn["start_y"]
         
         # Move node1
         self.graph.move_node("node1", 200, 200)
         
-        # Check that connection positions updated
+        # Check that net positions updated
         updated_result = self.graph.to_slint_format()
-        updated_conn = updated_result["connections"][0]
+        updated_conn = updated_result["nets"][0]
         
         # Start position should have changed (node1 moved)
         assert updated_conn["start_x"] != initial_start_x
@@ -1195,7 +1195,7 @@ class TestCreateDemoGraph:
         
         assert isinstance(graph, GraphData)
         assert len(graph.nodes) == 8  # 3 inputs + 3 gates + 2 outputs
-        assert len(graph.connections) == 7  # 7 connections
+        assert len(graph.nets) == 7  # 7 nets
     
     def test_demo_graph_nodes(self):
         """Test that demo graph contains expected nodes"""
@@ -1223,11 +1223,11 @@ class TestCreateDemoGraph:
         assert graph.nodes["output_a"].node_type == "output"
         assert graph.nodes["output_b"].node_type == "output"
     
-    def test_demo_graph_connections(self):
-        """Test that demo graph contains expected connections"""
+    def test_demo_graph_nets(self):
+        """Test that demo graph contains expected nets"""
         graph = create_demo_graph()
         
-        expected_connections = [
+        expected_nets = [
             ("c1", "input_a", "out", "and_gate", "in1"),
             ("c2", "input_b", "out", "and_gate", "in2"),
             ("c3", "input_b", "out", "or_gate", "in1"),
@@ -1237,13 +1237,13 @@ class TestCreateDemoGraph:
             ("c7", "or_gate", "out", "output_b", "in"),
         ]
         
-        for conn_id, from_node, from_conn, to_node, to_conn in expected_connections:
-            assert conn_id in graph.connections
-            connection = graph.connections[conn_id]
-            assert connection.from_node_id == from_node
-            assert connection.from_connector_id == from_conn
-            assert connection.to_node_id == to_node
-            assert connection.to_connector_id == to_conn
+        for conn_id, from_node, from_conn, to_node, to_conn in expected_nets:
+            assert conn_id in graph.nets
+            net = graph.nets[conn_id]
+            assert net.from_node_id == from_node
+            assert net.from_connector_id == from_conn
+            assert net.to_node_id == to_node
+            assert net.to_connector_id == to_conn
     
     def test_demo_graph_slint_format(self):
         """Test that demo graph can be converted to Slint format"""
@@ -1251,9 +1251,9 @@ class TestCreateDemoGraph:
         result = graph.to_slint_format()
         
         assert "nodes" in result
-        assert "connections" in result
+        assert "nets" in result
         assert len(result["nodes"]) == 8
-        assert len(result["connections"]) == 7
+        assert len(result["nets"]) == 7
         
         # Verify that all nodes have proper connector data
         for node_data in result["nodes"]:
@@ -1614,8 +1614,8 @@ class TestGraphDataLabelEditing:
         assert self.graph.selected_node_id is None     # Nothing selected
 
 
-class TestGraphDataConnectionSelection:
-    """Test cases for connection selection functionality"""
+class TestGraphDataNetSelection:
+    """Test cases for net selection functionality"""
     
     def setup_method(self):
         """Set up test fixtures"""
@@ -1631,15 +1631,15 @@ class TestGraphDataConnectionSelection:
         self.graph.add_node(and_gate)
         self.graph.add_node(output_node)
         
-        # Add test connections
-        self.connection1 = Connection("c1", "input1", "out", "and1", "in1")
-        self.connection2 = Connection("c2", "and1", "out", "output1", "in")
-        self.graph.add_connection(self.connection1)
-        self.graph.add_connection(self.connection2)
+        # Add test nets
+        self.net1 = Net("c1", "input1", "out", "and1", "in1")
+        self.net2 = Net("c2", "and1", "out", "output1", "in")
+        self.graph.add_net(self.net1)
+        self.graph.add_net(self.net2)
     
-    def test_connection_selection_state_initialization(self):
-        """Test that connection selection state is properly initialized"""
-        assert self.graph.selected_connection_id is None
+    def test_net_selection_state_initialization(self):
+        """Test that net selection state is properly initialized"""
+        assert self.graph.selected_net_id is None
     
     def test_point_to_line_segment_distance(self):
         """Test distance calculation from point to line segment"""
@@ -1659,208 +1659,208 @@ class TestGraphDataConnectionSelection:
         distance = self.graph.point_to_line_segment_distance(150, 0, 0, 0, 100, 0)
         assert abs(distance - 50.0) < 0.1
     
-    def test_is_point_on_connection(self):
-        """Test point hit-testing on connections"""
-        # This test uses actual connection coordinates
-        # connection1: input1.out -> and1.in1
+    def test_is_point_on_net(self):
+        """Test point hit-testing on nets"""
+        # This test uses actual net coordinates
+        # net1: input1.out -> and1.in1
         # Should be approximately from (99,74) to (199,94) based on connector positions
         
         # Point near the line should hit
-        assert self.graph.is_point_on_connection(self.connection1, 149, 84)  # Midpoint approximately
+        assert self.graph.is_point_on_net(self.net1, 149, 84)  # Midpoint approximately
         
         # Point far from line should not hit
-        assert not self.graph.is_point_on_connection(self.connection1, 100, 150)
+        assert not self.graph.is_point_on_net(self.net1, 100, 150)
         
         # Test with custom tolerance
-        assert self.graph.is_point_on_connection(self.connection1, 149, 94, tolerance=15.0)  # Larger tolerance
-        assert not self.graph.is_point_on_connection(self.connection1, 149, 94, tolerance=5.0)  # Smaller tolerance
+        assert self.graph.is_point_on_net(self.net1, 149, 94, tolerance=15.0)  # Larger tolerance
+        assert not self.graph.is_point_on_net(self.net1, 149, 94, tolerance=5.0)  # Smaller tolerance
     
-    def test_get_connection_at_position(self):
-        """Test getting connection at position"""
-        # Should find connection1 near its path
-        result = self.graph.get_connection_at_position(149, 84)
+    def test_get_net_at_position(self):
+        """Test getting net at position"""
+        # Should find net1 near its path
+        result = self.graph.get_net_at_position(149, 84)
         assert result == "c1"
         
-        # Should not find connection at empty area
-        result = self.graph.get_connection_at_position(500, 500)
+        # Should not find net at empty area
+        result = self.graph.get_net_at_position(500, 500)
         assert result is None
         
-        # Test priority - later connections should take priority if overlapping
-        # For this we need overlapping connections, but our test setup doesn't have them
+        # Test priority - later nets should take priority if overlapping
+        # For this we need overlapping nets, but our test setup doesn't have them
         # So this tests the basic case
-        result = self.graph.get_connection_at_position(314, 116)  # Near connection2
+        result = self.graph.get_net_at_position(314, 116)  # Near net2
         assert result == "c2"
     
-    def test_select_connection_valid(self):
-        """Test selecting a valid connection"""
-        self.graph.select_connection("c1")
+    def test_select_net_valid(self):
+        """Test selecting a valid net"""
+        self.graph.select_net("c1")
         
-        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_net_id == "c1"
         assert self.graph.selected_node_id is None  # Should deselect nodes
     
-    def test_select_connection_invalid(self):
-        """Test selecting an invalid connection"""
-        with pytest.raises(ValueError, match="Connection with ID 'nonexistent' does not exist"):
-            self.graph.select_connection("nonexistent")
+    def test_select_net_invalid(self):
+        """Test selecting an invalid net"""
+        with pytest.raises(ValueError, match="Net with ID 'nonexistent' does not exist"):
+            self.graph.select_net("nonexistent")
     
-    def test_select_connection_deselects_node(self):
-        """Test that selecting a connection deselects any selected node"""
+    def test_select_net_deselects_node(self):
+        """Test that selecting a net deselects any selected node"""
         # First select a node
         self.graph.select_node("input1")
         assert self.graph.selected_node_id == "input1"
         
-        # Then select a connection
-        self.graph.select_connection("c1")
+        # Then select a net
+        self.graph.select_net("c1")
         
-        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_net_id == "c1"
         assert self.graph.selected_node_id is None
     
-    def test_select_node_deselects_connection(self):
-        """Test that selecting a node deselects any selected connection"""
-        # First select a connection
-        self.graph.select_connection("c1")
-        assert self.graph.selected_connection_id == "c1"
+    def test_select_node_deselects_net(self):
+        """Test that selecting a node deselects any selected net"""
+        # First select a net
+        self.graph.select_net("c1")
+        assert self.graph.selected_net_id == "c1"
         
         # Then select a node
         self.graph.select_node("input1")
         
         assert self.graph.selected_node_id == "input1"
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_deselect_connection(self):
-        """Test deselecting a connection"""
-        self.graph.select_connection("c1")
-        assert self.graph.selected_connection_id == "c1"
+    def test_deselect_net(self):
+        """Test deselecting a net"""
+        self.graph.select_net("c1")
+        assert self.graph.selected_net_id == "c1"
         
-        self.graph.deselect_connection()
+        self.graph.deselect_net()
         
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_deselect_connection_when_none_selected(self):
-        """Test deselecting when no connection is selected"""
-        self.graph.deselect_connection()
+    def test_deselect_net_when_none_selected(self):
+        """Test deselecting when no net is selected"""
+        self.graph.deselect_net()
         
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_get_selected_connection(self):
-        """Test getting selected connection"""
-        assert self.graph.get_selected_connection() is None
+    def test_get_selected_net(self):
+        """Test getting selected net"""
+        assert self.graph.get_selected_net() is None
         
-        self.graph.select_connection("c1")
-        assert self.graph.get_selected_connection() == "c1"
+        self.graph.select_net("c1")
+        assert self.graph.get_selected_net() == "c1"
     
-    def test_handle_pointer_down_connection_selection(self):
-        """Test pointer down handling for connection selection"""
-        # Click near connection1
+    def test_handle_pointer_down_net_selection(self):
+        """Test pointer down handling for net selection"""
+        # Click near net1
         result = self.graph.handle_pointer_down(149, 84)
         
         assert result == True  # UI should refresh
-        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_net_id == "c1"
         assert self.graph.selected_node_id is None
     
     def test_handle_pointer_down_node_priority(self):
-        """Test that nodes have priority over connections"""
-        # Click on a node position (should select node, not connection)
+        """Test that nodes have priority over nets"""
+        # Click on a node position (should select node, not net)
         result = self.graph.handle_pointer_down(75, 75)  # On input1
         
         assert result == True  # UI should refresh
         assert self.graph.selected_node_id == "input1"
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_handle_mouse_click_connection_selection(self):
-        """Test mouse click connection selection"""
-        # Click on connection
+    def test_handle_mouse_click_net_selection(self):
+        """Test mouse click net selection"""
+        # Click on net
         result = self.graph.handle_mouse_click(149, 84)
         
         assert result == True  # Selection changed
-        assert self.graph.selected_connection_id == "c1"
+        assert self.graph.selected_net_id == "c1"
         assert self.graph.selected_node_id is None
     
-    def test_handle_mouse_click_connection_deselection(self):
-        """Test clicking same connection deselects it"""
-        self.graph.select_connection("c1")
+    def test_handle_mouse_click_net_deselection(self):
+        """Test clicking same net deselects it"""
+        self.graph.select_net("c1")
         
-        # Click on same connection again
+        # Click on same net again
         result = self.graph.handle_mouse_click(149, 84)
         
         assert result == True  # Selection changed
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_handle_mouse_click_different_connection(self):
-        """Test clicking different connection switches selection"""
-        self.graph.select_connection("c1")
+    def test_handle_mouse_click_different_net(self):
+        """Test clicking different net switches selection"""
+        self.graph.select_net("c1")
         
-        # Click on different connection
-        result = self.graph.handle_mouse_click(314, 116)  # Near connection2
+        # Click on different net
+        result = self.graph.handle_mouse_click(314, 116)  # Near net2
         
         assert result == True  # Selection changed
-        assert self.graph.selected_connection_id == "c2"
+        assert self.graph.selected_net_id == "c2"
     
-    def test_handle_mouse_click_empty_area_deselects_connection(self):
-        """Test clicking empty area deselects connection"""
-        self.graph.select_connection("c1")
+    def test_handle_mouse_click_empty_area_deselects_net(self):
+        """Test clicking empty area deselects net"""
+        self.graph.select_net("c1")
         
         # Click on empty area
         result = self.graph.handle_mouse_click(500, 500)
         
         assert result == True  # Selection changed
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
-    def test_to_slint_format_includes_selected_connections_none(self):
-        """Test Slint format includes empty selected connections"""
+    def test_to_slint_format_includes_selected_nets_none(self):
+        """Test Slint format includes empty selected nets"""
         result = self.graph.to_slint_format()
         
-        assert "selected_connections" in result
-        assert result["selected_connections"] == []
+        assert "selected_nets" in result
+        assert result["selected_nets"] == []
     
-    def test_to_slint_format_includes_selected_connections_with_selection(self):
-        """Test Slint format includes selected connection"""
-        self.graph.select_connection("c1")
+    def test_to_slint_format_includes_selected_nets_with_selection(self):
+        """Test Slint format includes selected net"""
+        self.graph.select_net("c1")
         
         result = self.graph.to_slint_format()
         
-        assert "selected_connections" in result
-        assert result["selected_connections"] == ["c1"]
+        assert "selected_nets" in result
+        assert result["selected_nets"] == ["c1"]
     
-    def test_connection_selection_integration_scenario(self):
-        """Test a complete connection selection scenario"""
+    def test_net_selection_integration_scenario(self):
+        """Test a complete net selection scenario"""
         # Start with no selection
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
         assert self.graph.selected_node_id is None
         
-        # Select a connection
-        self.graph.select_connection("c1")
-        assert self.graph.selected_connection_id == "c1"
+        # Select a net
+        self.graph.select_net("c1")
+        assert self.graph.selected_net_id == "c1"
         
-        # Select a different connection
-        self.graph.select_connection("c2")
-        assert self.graph.selected_connection_id == "c2"
+        # Select a different net
+        self.graph.select_net("c2")
+        assert self.graph.selected_net_id == "c2"
         
-        # Select a node (should deselect connection)
+        # Select a node (should deselect net)
         self.graph.select_node("input1")
         assert self.graph.selected_node_id == "input1"
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
         
-        # Select connection again (should deselect node)
-        self.graph.select_connection("c1")
-        assert self.graph.selected_connection_id == "c1"
+        # Select net again (should deselect node)
+        self.graph.select_net("c1")
+        assert self.graph.selected_net_id == "c1"
         assert self.graph.selected_node_id is None
     
-    def test_connection_hit_testing_edge_cases(self):
-        """Test connection hit-testing edge cases"""
+    def test_net_hit_testing_edge_cases(self):
+        """Test net hit-testing edge cases"""
         # Test with zero-length line (degenerate case)
         # This shouldn't happen in practice but tests the math
-        fake_connection = Connection("test", "input1", "out", "input1", "out")
+        fake_net = Net("test", "input1", "out", "input1", "out")
         
         # Point at same location should hit
-        assert self.graph.is_point_on_connection(fake_connection, 99, 74, tolerance=1.0)
+        assert self.graph.is_point_on_net(fake_net, 99, 74, tolerance=1.0)
         
         # Point away should not hit
-        assert not self.graph.is_point_on_connection(fake_connection, 200, 200, tolerance=1.0)
+        assert not self.graph.is_point_on_net(fake_net, 200, 200, tolerance=1.0)
 
 
 class TestGraphDataDeletion:
-    """Test cases for node and connection deletion functionality"""
+    """Test cases for node and net deletion functionality"""
     
     def setup_method(self):
         """Set up test fixtures"""
@@ -1878,13 +1878,13 @@ class TestGraphDataDeletion:
         self.graph.add_node(or_gate)
         self.graph.add_node(output_node)
         
-        # Add test connections
-        self.connection1 = Connection("c1", "input1", "out", "and1", "in1")
-        self.connection2 = Connection("c2", "and1", "out", "output1", "in")
-        self.connection3 = Connection("c3", "input1", "out", "or1", "in1")
-        self.graph.add_connection(self.connection1)
-        self.graph.add_connection(self.connection2)
-        self.graph.add_connection(self.connection3)
+        # Add test nets
+        self.net1 = Net("c1", "input1", "out", "and1", "in1")
+        self.net2 = Net("c2", "and1", "out", "output1", "in")
+        self.net3 = Net("c3", "input1", "out", "or1", "in1")
+        self.graph.add_net(self.net1)
+        self.graph.add_net(self.net2)
+        self.graph.add_net(self.net3)
     
     def test_delete_node_valid(self):
         """Test deleting a valid node"""
@@ -1909,22 +1909,22 @@ class TestGraphDataDeletion:
         assert result == False
         assert len(self.graph.nodes) == initial_count
     
-    def test_delete_node_cascade_connections(self):
-        """Test that deleting a node also deletes its connections"""
+    def test_delete_node_cascade_nets(self):
+        """Test that deleting a node also deletes its nets"""
         # Verify initial state
-        assert len(self.graph.connections) == 3
-        assert "c1" in self.graph.connections  # input1 -> and1
-        assert "c2" in self.graph.connections  # and1 -> output1
-        assert "c3" in self.graph.connections  # input1 -> or1
+        assert len(self.graph.nets) == 3
+        assert "c1" in self.graph.nets  # input1 -> and1
+        assert "c2" in self.graph.nets  # and1 -> output1
+        assert "c3" in self.graph.nets  # input1 -> or1
         
         # Delete and1 node (should cascade delete c1 and c2)
         result = self.graph.delete_node("and1")
         
         assert result == True
-        assert len(self.graph.connections) == 1  # Only c3 should remain
-        assert "c1" not in self.graph.connections
-        assert "c2" not in self.graph.connections
-        assert "c3" in self.graph.connections  # Unrelated connection preserved
+        assert len(self.graph.nets) == 1  # Only c3 should remain
+        assert "c1" not in self.graph.nets
+        assert "c2" not in self.graph.nets
+        assert "c3" in self.graph.nets  # Unrelated net preserved
     
     def test_delete_node_selected_state_cleanup(self):
         """Test that deleting a selected node clears selection"""
@@ -1966,126 +1966,126 @@ class TestGraphDataDeletion:
         assert self.graph.editing_node_id == "or1"      # Preserved
         assert self.graph.editing_text == "OR"          # Preserved
     
-    def test_delete_connection_valid(self):
-        """Test deleting a valid connection"""
-        # Verify connection exists
-        assert "c1" in self.graph.connections
-        assert len(self.graph.connections) == 3
+    def test_delete_net_valid(self):
+        """Test deleting a valid net"""
+        # Verify net exists
+        assert "c1" in self.graph.nets
+        assert len(self.graph.nets) == 3
         
-        # Delete the connection
-        result = self.graph.delete_connection("c1")
+        # Delete the net
+        result = self.graph.delete_net("c1")
         
-        # Verify connection is deleted
+        # Verify net is deleted
         assert result == True
-        assert "c1" not in self.graph.connections
-        assert len(self.graph.connections) == 2
+        assert "c1" not in self.graph.nets
+        assert len(self.graph.nets) == 2
         
         # Verify nodes are unaffected
         assert len(self.graph.nodes) == 4
     
-    def test_delete_connection_invalid(self):
-        """Test deleting a non-existent connection"""
-        initial_count = len(self.graph.connections)
+    def test_delete_net_invalid(self):
+        """Test deleting a non-existent net"""
+        initial_count = len(self.graph.nets)
         
-        result = self.graph.delete_connection("nonexistent")
+        result = self.graph.delete_net("nonexistent")
         
         assert result == False
-        assert len(self.graph.connections) == initial_count
+        assert len(self.graph.nets) == initial_count
     
-    def test_delete_connection_selected_state_cleanup(self):
-        """Test that deleting a selected connection clears selection"""
-        # Select the connection first
-        self.graph.select_connection("c1")
-        assert self.graph.selected_connection_id == "c1"
+    def test_delete_net_selected_state_cleanup(self):
+        """Test that deleting a selected net clears selection"""
+        # Select the net first
+        self.graph.select_net("c1")
+        assert self.graph.selected_net_id == "c1"
         
-        # Delete the connection
-        result = self.graph.delete_connection("c1")
+        # Delete the net
+        result = self.graph.delete_net("c1")
         
         assert result == True
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
     def test_delete_selected_node(self):
         """Test deleting selected node via delete_selected"""
         # Select a node
         self.graph.select_node("and1")
         initial_node_count = len(self.graph.nodes)
-        initial_connection_count = len(self.graph.connections)
+        initial_net_count = len(self.graph.nets)
         
         # Delete selected item
         result = self.graph.delete_selected()
         
         assert result == True
         assert len(self.graph.nodes) == initial_node_count - 1
-        assert len(self.graph.connections) < initial_connection_count  # Cascade deletion
+        assert len(self.graph.nets) < initial_net_count  # Cascade deletion
         assert self.graph.selected_node_id is None
     
-    def test_delete_selected_connection(self):
-        """Test deleting selected connection via delete_selected"""
-        # Select a connection
-        self.graph.select_connection("c1")
-        initial_connection_count = len(self.graph.connections)
+    def test_delete_selected_net(self):
+        """Test deleting selected net via delete_selected"""
+        # Select a net
+        self.graph.select_net("c1")
+        initial_net_count = len(self.graph.nets)
         initial_node_count = len(self.graph.nodes)
         
         # Delete selected item
         result = self.graph.delete_selected()
         
         assert result == True
-        assert len(self.graph.connections) == initial_connection_count - 1
+        assert len(self.graph.nets) == initial_net_count - 1
         assert len(self.graph.nodes) == initial_node_count  # Nodes unaffected
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
     
     def test_delete_selected_nothing(self):
         """Test delete_selected when nothing is selected"""
         # Ensure nothing is selected
         assert self.graph.selected_node_id is None
-        assert self.graph.selected_connection_id is None
+        assert self.graph.selected_net_id is None
         
         initial_node_count = len(self.graph.nodes)
-        initial_connection_count = len(self.graph.connections)
+        initial_net_count = len(self.graph.nets)
         
         # Attempt to delete
         result = self.graph.delete_selected()
         
         assert result == False
         assert len(self.graph.nodes) == initial_node_count
-        assert len(self.graph.connections) == initial_connection_count
+        assert len(self.graph.nets) == initial_net_count
     
     def test_cascade_deletion_complex_graph(self):
-        """Test cascade deletion with node having multiple connections"""
-        # input1 has connections c1 and c3, so deleting it should remove both
-        assert "c1" in self.graph.connections  # input1 -> and1
-        assert "c3" in self.graph.connections  # input1 -> or1
-        assert len(self.graph.connections) == 3
+        """Test cascade deletion with node having multiple nets"""
+        # input1 has nets c1 and c3, so deleting it should remove both
+        assert "c1" in self.graph.nets  # input1 -> and1
+        assert "c3" in self.graph.nets  # input1 -> or1
+        assert len(self.graph.nets) == 3
         
         # Delete input1
         result = self.graph.delete_node("input1")
         
         assert result == True
         assert "input1" not in self.graph.nodes
-        assert "c1" not in self.graph.connections  # Cascade deleted
-        assert "c3" not in self.graph.connections  # Cascade deleted
-        assert "c2" in self.graph.connections     # Unrelated connection preserved
-        assert len(self.graph.connections) == 1
+        assert "c1" not in self.graph.nets  # Cascade deleted
+        assert "c3" not in self.graph.nets  # Cascade deleted
+        assert "c2" in self.graph.nets     # Unrelated net preserved
+        assert len(self.graph.nets) == 1
     
     def test_delete_integration_scenario(self):
         """Test a complete deletion workflow scenario"""
         # Start with full graph
         assert len(self.graph.nodes) == 4
-        assert len(self.graph.connections) == 3
+        assert len(self.graph.nets) == 3
         
-        # Select and delete a connection
-        self.graph.select_connection("c2")
+        # Select and delete a net
+        self.graph.select_net("c2")
         result1 = self.graph.delete_selected()
         assert result1 == True
-        assert len(self.graph.connections) == 2
-        assert self.graph.selected_connection_id is None
+        assert len(self.graph.nets) == 2
+        assert self.graph.selected_net_id is None
         
         # Select and delete a node (with cascade)
         self.graph.select_node("input1")
         result2 = self.graph.delete_selected()
         assert result2 == True
         assert len(self.graph.nodes) == 3
-        assert len(self.graph.connections) == 0  # c1 and c3 cascade deleted
+        assert len(self.graph.nets) == 0  # c1 and c3 cascade deleted
         assert self.graph.selected_node_id is None
         
         # Try to delete when nothing selected
@@ -2094,7 +2094,7 @@ class TestGraphDataDeletion:
         
         # Graph should be stable
         assert len(self.graph.nodes) == 3
-        assert len(self.graph.connections) == 0
+        assert len(self.graph.nets) == 0
     
     def test_delete_preserves_other_selections(self):
         """Test that deletion of unrelated items preserves current selection"""
@@ -2105,18 +2105,18 @@ class TestGraphDataDeletion:
         assert result == True
         assert self.graph.selected_node_id == "input1"  # Selection preserved
         
-        # Test 2: Select one connection, delete a different one
+        # Test 2: Select one net, delete a different one
         # After deleting or1, we still have c1 (input1->and1) and c2 (and1->output1)
         # c3 (input1->or1) was cascade deleted with or1
-        self.graph.select_connection("c1")
-        result = self.graph.delete_connection("c2")  # Delete different connection
+        self.graph.select_net("c1")
+        result = self.graph.delete_net("c2")  # Delete different net
         
         assert result == True
-        assert self.graph.selected_connection_id == "c1"  # Selection preserved
+        assert self.graph.selected_net_id == "c1"  # Selection preserved
 
 
-class TestGraphDataConnectionCreation:
-    """Test cases for connection creation functionality"""
+class TestGraphDataNetCreation:
+    """Test cases for net creation functionality"""
     
     def setup_method(self):
         """Set up test fixtures"""
@@ -2178,241 +2178,241 @@ class TestGraphDataConnectionCreation:
         result = self.graph.get_connector_at_position(abs_x, abs_y)
         assert result == ("node2", "out")
     
-    def test_start_connection_creation_valid(self):
-        """Test starting connection creation from valid connector"""
-        result = self.graph.start_connection_creation("input1", "out")
+    def test_start_net_creation_valid(self):
+        """Test starting net creation from valid connector"""
+        result = self.graph.start_net_creation("input1", "out")
         
         assert result == True
-        assert self.graph.creating_connection == True
-        assert self.graph.connection_start_node_id == "input1"
-        assert self.graph.connection_start_connector_id == "out"
+        assert self.graph.creating_net == True
+        assert self.graph.net_start_node_id == "input1"
+        assert self.graph.net_start_connector_id == "out"
         
         # Pending end position should be initialized to connector position
         start_x, start_y = self.graph.get_connector_absolute_position("input1", "out")
-        assert self.graph.pending_connection_end_x == start_x
-        assert self.graph.pending_connection_end_y == start_y
+        assert self.graph.pending_net_end_x == start_x
+        assert self.graph.pending_net_end_y == start_y
     
-    def test_start_connection_creation_invalid_node(self):
-        """Test starting connection creation from non-existent node"""
-        result = self.graph.start_connection_creation("nonexistent", "out")
+    def test_start_net_creation_invalid_node(self):
+        """Test starting net creation from non-existent node"""
+        result = self.graph.start_net_creation("nonexistent", "out")
         
         assert result == False
-        assert self.graph.creating_connection == False
+        assert self.graph.creating_net == False
     
-    def test_start_connection_creation_invalid_connector(self):
-        """Test starting connection creation from non-existent connector"""
-        result = self.graph.start_connection_creation("input1", "nonexistent")
+    def test_start_net_creation_invalid_connector(self):
+        """Test starting net creation from non-existent connector"""
+        result = self.graph.start_net_creation("input1", "nonexistent")
         
         assert result == False
-        assert self.graph.creating_connection == False
+        assert self.graph.creating_net == False
     
-    def test_start_connection_creation_clears_existing_state(self):
-        """Test that starting connection creation clears other states"""
+    def test_start_net_creation_clears_existing_state(self):
+        """Test that starting net creation clears other states"""
         # Set up existing states
         self.graph.select_node("input1")
         self.graph.start_label_edit("input1")
         
-        # Start connection creation
-        result = self.graph.start_connection_creation("and1", "out")
+        # Start net creation
+        result = self.graph.start_net_creation("and1", "out")
         
         assert result == True
-        assert self.graph.creating_connection == True
+        assert self.graph.creating_net == True
         assert self.graph.selected_node_id is None  # Selection cleared
         assert self.graph.editing_node_id is None   # Editing cleared
     
-    def test_update_pending_connection(self):
-        """Test updating pending connection position"""
-        # Start connection creation
-        self.graph.start_connection_creation("input1", "out")
+    def test_update_pending_net(self):
+        """Test updating pending net position"""
+        # Start net creation
+        self.graph.start_net_creation("input1", "out")
         
         # Update pending position
-        result = self.graph.update_pending_connection(300.0, 250.0)
+        result = self.graph.update_pending_net(300.0, 250.0)
         
         assert result == True
-        assert self.graph.pending_connection_end_x == 300.0
-        assert self.graph.pending_connection_end_y == 250.0
+        assert self.graph.pending_net_end_x == 300.0
+        assert self.graph.pending_net_end_y == 250.0
     
-    def test_update_pending_connection_not_creating(self):
-        """Test updating pending connection when not in creation mode"""
-        result = self.graph.update_pending_connection(300.0, 250.0)
+    def test_update_pending_net_not_creating(self):
+        """Test updating pending net when not in creation mode"""
+        result = self.graph.update_pending_net(300.0, 250.0)
         
         assert result == False
     
-    def test_cancel_connection_creation(self):
-        """Test cancelling connection creation"""
-        # Start connection creation
-        self.graph.start_connection_creation("input1", "out")
-        assert self.graph.creating_connection == True
+    def test_cancel_net_creation(self):
+        """Test cancelling net creation"""
+        # Start net creation
+        self.graph.start_net_creation("input1", "out")
+        assert self.graph.creating_net == True
         
         # Cancel creation
-        result = self.graph.cancel_connection_creation()
+        result = self.graph.cancel_net_creation()
         
         assert result == True
-        assert self.graph.creating_connection == False
-        assert self.graph.connection_start_node_id is None
-        assert self.graph.connection_start_connector_id is None
-        assert self.graph.pending_connection_end_x == 0.0
-        assert self.graph.pending_connection_end_y == 0.0
+        assert self.graph.creating_net == False
+        assert self.graph.net_start_node_id is None
+        assert self.graph.net_start_connector_id is None
+        assert self.graph.pending_net_end_x == 0.0
+        assert self.graph.pending_net_end_y == 0.0
     
-    def test_cancel_connection_creation_not_creating(self):
+    def test_cancel_net_creation_not_creating(self):
         """Test cancelling when not in creation mode"""
-        result = self.graph.cancel_connection_creation()
+        result = self.graph.cancel_net_creation()
         
         assert result == False
     
-    def test_complete_connection_creation_valid(self):
-        """Test completing valid connection creation"""
-        # Start connection from input to and gate
-        self.graph.start_connection_creation("input1", "out")
+    def test_complete_net_creation_valid(self):
+        """Test completing valid net creation"""
+        # Start net from input to and gate
+        self.graph.start_net_creation("input1", "out")
         
-        # Complete connection to and gate input
-        result = self.graph.complete_connection_creation("and1", "in1")
+        # Complete net to and gate input
+        result = self.graph.complete_net_creation("and1", "in1")
         
         assert result == True
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == 1
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == 1
         
-        # Check the created connection
-        connection = list(self.graph.connections.values())[0]
-        assert connection.from_node_id == "input1"
-        assert connection.from_connector_id == "out"
-        assert connection.to_node_id == "and1"
-        assert connection.to_connector_id == "in1"
+        # Check the created net
+        net = list(self.graph.nets.values())[0]
+        assert net.from_node_id == "input1"
+        assert net.from_connector_id == "out"
+        assert net.to_node_id == "and1"
+        assert net.to_connector_id == "in1"
     
-    def test_complete_connection_creation_not_creating(self):
+    def test_complete_net_creation_not_creating(self):
         """Test completing when not in creation mode"""
-        result = self.graph.complete_connection_creation("and1", "in1")
+        result = self.graph.complete_net_creation("and1", "in1")
         
         assert result == False
     
-    def test_complete_connection_creation_invalid_target(self):
+    def test_complete_net_creation_invalid_target(self):
         """Test completing with invalid target connector"""
-        self.graph.start_connection_creation("input1", "out")
+        self.graph.start_net_creation("input1", "out")
         
         # Try to complete with non-existent node
-        result = self.graph.complete_connection_creation("nonexistent", "in1")
+        result = self.graph.complete_net_creation("nonexistent", "in1")
         
         assert result == True  # Returns True because it cancels creation
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == 0
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == 0
     
-    def test_can_create_connection_valid_output_to_input(self):
-        """Test valid connection from output to input"""
-        result = self.graph.can_create_connection("input1", "out", "and1", "in1")
+    def test_can_create_net_valid_output_to_input(self):
+        """Test valid net from output to input"""
+        result = self.graph.can_create_net("input1", "out", "and1", "in1")
         assert result == True
     
-    def test_can_create_connection_valid_input_to_output(self):
-        """Test valid connection from input to output (reverse direction)"""
-        result = self.graph.can_create_connection("and1", "in1", "input1", "out")
+    def test_can_create_net_valid_input_to_output(self):
+        """Test valid net from input to output (reverse direction)"""
+        result = self.graph.can_create_net("and1", "in1", "input1", "out")
         assert result == True
     
-    def test_can_create_connection_same_node(self):
-        """Test invalid connection to same node"""
-        result = self.graph.can_create_connection("input1", "out", "input1", "out")
+    def test_can_create_net_same_node(self):
+        """Test invalid net to same node"""
+        result = self.graph.can_create_net("input1", "out", "input1", "out")
         assert result == False
     
-    def test_can_create_connection_output_to_output(self):
-        """Test invalid connection from output to output"""
-        result = self.graph.can_create_connection("input1", "out", "and1", "out")
+    def test_can_create_net_output_to_output(self):
+        """Test invalid net from output to output"""
+        result = self.graph.can_create_net("input1", "out", "and1", "out")
         assert result == False
     
-    def test_can_create_connection_input_to_input(self):
-        """Test invalid connection from input to input"""
-        result = self.graph.can_create_connection("and1", "in1", "and1", "in2")
+    def test_can_create_net_input_to_input(self):
+        """Test invalid net from input to input"""
+        result = self.graph.can_create_net("and1", "in1", "and1", "in2")
         assert result == False
     
-    def test_can_create_connection_duplicate(self):
-        """Test preventing duplicate connections"""
-        # Create initial connection
-        connection = Connection("c1", "input1", "out", "and1", "in1")
-        self.graph.add_connection(connection)
+    def test_can_create_net_duplicate(self):
+        """Test preventing duplicate nets"""
+        # Create initial net
+        net = Net("c1", "input1", "out", "and1", "in1")
+        self.graph.add_net(net)
         
-        # Try to create same connection again
-        result = self.graph.can_create_connection("input1", "out", "and1", "in1")
+        # Try to create same net again
+        result = self.graph.can_create_net("input1", "out", "and1", "in1")
         assert result == False
         
         # Try reverse direction
-        result = self.graph.can_create_connection("and1", "in1", "input1", "out")
+        result = self.graph.can_create_net("and1", "in1", "input1", "out")
         assert result == False
     
-    def test_can_create_connection_input_already_connected(self):
-        """Test preventing multiple connections to same input"""
-        # Create initial connection to and gate input
-        connection = Connection("c1", "input1", "out", "and1", "in1")
-        self.graph.add_connection(connection)
+    def test_can_create_net_input_already_connected(self):
+        """Test preventing multiple nets to same input"""
+        # Create initial net to and gate input
+        net = Net("c1", "input1", "out", "and1", "in1")
+        self.graph.add_net(net)
         
         # Try to connect another output to same input
         input2 = Node.create("input2", NODE_REGISTRY.get_definition("input"), 50, 150)
         self.graph.add_node(input2)
         
-        result = self.graph.can_create_connection("input2", "out", "and1", "in1")
+        result = self.graph.can_create_net("input2", "out", "and1", "in1")
         assert result == False
     
-    def test_can_create_connection_nonexistent_nodes(self):
-        """Test connection validation with non-existent nodes"""
-        result = self.graph.can_create_connection("nonexistent1", "out", "and1", "in1")
+    def test_can_create_net_nonexistent_nodes(self):
+        """Test net validation with non-existent nodes"""
+        result = self.graph.can_create_net("nonexistent1", "out", "and1", "in1")
         assert result == False
         
-        result = self.graph.can_create_connection("input1", "out", "nonexistent2", "in1")
+        result = self.graph.can_create_net("input1", "out", "nonexistent2", "in1")
         assert result == False
     
-    def test_can_create_connection_nonexistent_connectors(self):
-        """Test connection validation with non-existent connectors"""
-        result = self.graph.can_create_connection("input1", "nonexistent", "and1", "in1")
+    def test_can_create_net_nonexistent_connectors(self):
+        """Test net validation with non-existent connectors"""
+        result = self.graph.can_create_net("input1", "nonexistent", "and1", "in1")
         assert result == False
         
-        result = self.graph.can_create_connection("input1", "out", "and1", "nonexistent")
+        result = self.graph.can_create_net("input1", "out", "and1", "nonexistent")
         assert result == False
     
-    def test_connection_creation_workflow(self):
-        """Test complete connection creation workflow"""
-        initial_connections = len(self.graph.connections)
+    def test_net_creation_workflow(self):
+        """Test complete net creation workflow"""
+        initial_nets = len(self.graph.nets)
         
-        # Start connection creation
-        result1 = self.graph.start_connection_creation("input1", "out")
+        # Start net creation
+        result1 = self.graph.start_net_creation("input1", "out")
         assert result1 == True
-        assert self.graph.creating_connection == True
+        assert self.graph.creating_net == True
         
-        # Update pending connection a few times (simulating mouse movement)
-        result2 = self.graph.update_pending_connection(150.0, 90.0)
+        # Update pending net a few times (simulating mouse movement)
+        result2 = self.graph.update_pending_net(150.0, 90.0)
         assert result2 == True
         
-        result3 = self.graph.update_pending_connection(180.0, 95.0)
+        result3 = self.graph.update_pending_net(180.0, 95.0)
         assert result3 == True
         
-        # Complete connection
-        result4 = self.graph.complete_connection_creation("and1", "in1")
+        # Complete net
+        result4 = self.graph.complete_net_creation("and1", "in1")
         assert result4 == True
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == initial_connections + 1
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == initial_nets + 1
     
-    def test_connection_creation_cancel_workflow(self):
-        """Test connection creation with cancellation"""
-        initial_connections = len(self.graph.connections)
+    def test_net_creation_cancel_workflow(self):
+        """Test net creation with cancellation"""
+        initial_nets = len(self.graph.nets)
         
-        # Start connection creation
-        self.graph.start_connection_creation("input1", "out")
+        # Start net creation
+        self.graph.start_net_creation("input1", "out")
         
-        # Update pending connection
-        self.graph.update_pending_connection(200.0, 100.0)
+        # Update pending net
+        self.graph.update_pending_net(200.0, 100.0)
         
         # Cancel instead of completing
-        result = self.graph.cancel_connection_creation()
+        result = self.graph.cancel_net_creation()
         
         assert result == True
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == initial_connections  # No new connections
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == initial_nets  # No new nets
     
-    def test_to_slint_format_with_pending_connection(self):
-        """Test Slint format includes pending connection data"""
-        # Start connection creation
-        self.graph.start_connection_creation("input1", "out")
-        self.graph.update_pending_connection(300.0, 250.0)
+    def test_to_slint_format_with_pending_net(self):
+        """Test Slint format includes pending net data"""
+        # Start net creation
+        self.graph.start_net_creation("input1", "out")
+        self.graph.update_pending_net(300.0, 250.0)
         
         result = self.graph.to_slint_format()
         
-        assert "creating_connection" in result
-        assert result["creating_connection"] == True
+        assert "creating_net" in result
+        assert result["creating_net"] == True
         assert "pending_start_x" in result
         assert "pending_start_y" in result
         assert "pending_end_x" in result
@@ -2420,51 +2420,51 @@ class TestGraphDataConnectionCreation:
         assert result["pending_end_x"] == 300.0
         assert result["pending_end_y"] == 250.0
     
-    def test_to_slint_format_no_pending_connection(self):
-        """Test Slint format when not creating connection"""
+    def test_to_slint_format_no_pending_net(self):
+        """Test Slint format when not creating net"""
         result = self.graph.to_slint_format()
         
-        assert "creating_connection" in result
-        assert result["creating_connection"] == False
+        assert "creating_net" in result
+        assert result["creating_net"] == False
         assert result["pending_start_x"] == 0.0
         assert result["pending_start_y"] == 0.0
         assert result["pending_end_x"] == 0.0
         assert result["pending_end_y"] == 0.0
     
-    def test_pointer_events_connection_creation(self):
-        """Test pointer event handling during connection creation"""
-        # Test starting connection by clicking on connector
+    def test_pointer_events_net_creation(self):
+        """Test pointer event handling during net creation"""
+        # Test starting net by clicking on connector
         input_connector_x, input_connector_y = self.graph.get_connector_absolute_position("input1", "out")
         
         result1 = self.graph.handle_pointer_down(input_connector_x, input_connector_y)
         assert result1 == True
-        assert self.graph.creating_connection == True
+        assert self.graph.creating_net == True
         
-        # Test updating pending connection during mouse move
+        # Test updating pending net during mouse move
         result2 = self.graph.handle_pointer_move(200.0, 100.0)
         assert result2 == True
-        assert self.graph.pending_connection_end_x == 200.0
-        assert self.graph.pending_connection_end_y == 100.0
+        assert self.graph.pending_net_end_x == 200.0
+        assert self.graph.pending_net_end_y == 100.0
         
-        # Test completing connection by clicking on target connector
+        # Test completing net by clicking on target connector
         and_connector_x, and_connector_y = self.graph.get_connector_absolute_position("and1", "in1")
         result3 = self.graph.handle_pointer_down(and_connector_x, and_connector_y)
         assert result3 == True
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == 1
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == 1
     
-    def test_pointer_events_cancel_connection_creation(self):
-        """Test cancelling connection creation by clicking empty area"""
-        # Start connection creation
+    def test_pointer_events_cancel_net_creation(self):
+        """Test cancelling net creation by clicking empty area"""
+        # Start net creation
         input_connector_x, input_connector_y = self.graph.get_connector_absolute_position("input1", "out")
         self.graph.handle_pointer_down(input_connector_x, input_connector_y)
-        assert self.graph.creating_connection == True
+        assert self.graph.creating_net == True
         
         # Click on empty area to cancel
         result = self.graph.handle_pointer_down(500.0, 500.0)  # Empty area
         assert result == True
-        assert self.graph.creating_connection == False
-        assert len(self.graph.connections) == 0
+        assert self.graph.creating_net == False
+        assert len(self.graph.nets) == 0
 
 
 class TestGraphDataToolbox:
@@ -2498,7 +2498,7 @@ class TestGraphDataToolbox:
         
         self.graph.select_node("input1")
         self.graph.start_label_edit("input1")
-        self.graph.start_connection_creation("input1", "out")
+        self.graph.start_net_creation("input1", "out")
         
         # Select toolbox item
         result = self.graph.select_toolbox_node_type("and")
@@ -2508,7 +2508,7 @@ class TestGraphDataToolbox:
         assert self.graph.toolbox_creation_mode == True
         assert self.graph.selected_node_id is None          # Node selection cleared
         assert self.graph.editing_node_id is None           # Label editing cleared
-        assert self.graph.creating_connection == False      # Connection creation cleared
+        assert self.graph.creating_net == False      # Net creation cleared
     
     def test_deselect_toolbox_node_type(self):
         """Test deselecting toolbox node type"""
@@ -2755,11 +2755,11 @@ class TestCircuitSimulation:
         self.graph.add_node(self.output)
         
         # Connect: A -> NOT -> OUT
-        self.conn1 = Connection("c1", "input_a", "out", "not_gate", "in")
-        self.conn2 = Connection("c2", "not_gate", "out", "output", "in")
+        self.conn1 = Net("c1", "input_a", "out", "not_gate", "in")
+        self.conn2 = Net("c2", "not_gate", "out", "output", "in")
         
-        self.graph.add_connection(self.conn1)
-        self.graph.add_connection(self.conn2)
+        self.graph.add_net(self.conn1)
+        self.graph.add_net(self.conn2)
     
     def test_simulate_simple_not_gate_true_input(self):
         """Test simulation of NOT gate with true input"""
@@ -2814,17 +2814,17 @@ class TestCircuitSimulation:
         graph.add_node(or_gate)
         graph.add_node(output)
         
-        # Create connections: A -> AND, B -> AND, AND -> OR, C -> OR, OR -> OUT
-        connections = [
-            Connection("c1", "a", "out", "and", "in1"),
-            Connection("c2", "b", "out", "and", "in2"),
-            Connection("c3", "and", "out", "or", "in1"),
-            Connection("c4", "c", "out", "or", "in2"),
-            Connection("c5", "or", "out", "out", "in")
+        # Create nets: A -> AND, B -> AND, AND -> OR, C -> OR, OR -> OUT
+        nets = [
+            Net("c1", "a", "out", "and", "in1"),
+            Net("c2", "b", "out", "and", "in2"),
+            Net("c3", "and", "out", "or", "in1"),
+            Net("c4", "c", "out", "or", "in2"),
+            Net("c5", "or", "out", "out", "in")
         ]
         
-        for conn in connections:
-            graph.add_connection(conn)
+        for conn in nets:
+            graph.add_net(conn)
         
         # Test case: A=True, B=False, C=False -> (True AND False) OR False = False OR False = False
         graph.set_input_value("a", True)
@@ -2899,20 +2899,20 @@ class TestCircuitSimulation:
         for node in nodes:
             graph.add_node(node)
         
-        # Connections: A,B -> AND -> NOT, C,D -> OR, NOT,OR -> final_or -> out
-        connections = [
-            Connection("c1", "a", "out", "and", "in1"),
-            Connection("c2", "b", "out", "and", "in2"),
-            Connection("c3", "and", "out", "not", "in"),
-            Connection("c4", "c", "out", "or", "in1"),
-            Connection("c5", "d", "out", "or", "in2"),
-            Connection("c6", "not", "out", "final_or", "in1"),
-            Connection("c7", "or", "out", "final_or", "in2"),
-            Connection("c8", "final_or", "out", "out", "in")
+        # Nets: A,B -> AND -> NOT, C,D -> OR, NOT,OR -> final_or -> out
+        nets = [
+            Net("c1", "a", "out", "and", "in1"),
+            Net("c2", "b", "out", "and", "in2"),
+            Net("c3", "and", "out", "not", "in"),
+            Net("c4", "c", "out", "or", "in1"),
+            Net("c5", "d", "out", "or", "in2"),
+            Net("c6", "not", "out", "final_or", "in1"),
+            Net("c7", "or", "out", "final_or", "in2"),
+            Net("c8", "final_or", "out", "out", "in")
         ]
         
-        for conn in connections:
-            graph.add_connection(conn)
+        for conn in nets:
+            graph.add_net(conn)
         
         order = graph._get_evaluation_order()
         
@@ -2946,15 +2946,15 @@ class TestCircuitSimulation:
         for node in nodes:
             graph.add_node(node)
         
-        # Create circular connections
-        connections = [
-            Connection("c1", "a", "out", "b", "in"),
-            Connection("c2", "b", "out", "c", "in"),
-            Connection("c3", "c", "out", "a", "in")  # This creates the cycle
+        # Create circular nets
+        nets = [
+            Net("c1", "a", "out", "b", "in"),
+            Net("c2", "b", "out", "c", "in"),
+            Net("c3", "c", "out", "a", "in")  # This creates the cycle
         ]
         
-        for conn in connections:
-            graph.add_connection(conn)
+        for conn in nets:
+            graph.add_net(conn)
         
         with pytest.raises(ValueError, match="Circular dependency detected involving nodes"):
             graph._get_evaluation_order()
@@ -3055,8 +3055,8 @@ class TestCircuitSimulation:
         graph.add_node(input_b) 
         graph.add_node(and_gate)
         
-        graph.add_connection(Connection("c1", "a", "out", "and", "in1"))
-        graph.add_connection(Connection("c2", "b", "out", "and", "in2"))
+        graph.add_net(Net("c1", "a", "out", "and", "in1"))
+        graph.add_net(Net("c2", "b", "out", "and", "in2"))
         
         # Set only one input
         graph.set_input_value("a", True)
@@ -3085,9 +3085,9 @@ class TestUIInteraction:
         self.graph.add_node(self.output)
         
         # Connect: A,B -> AND -> OUT
-        self.graph.add_connection(Connection("c1", "input_a", "out", "and_gate", "in1"))
-        self.graph.add_connection(Connection("c2", "input_b", "out", "and_gate", "in2"))
-        self.graph.add_connection(Connection("c3", "and_gate", "out", "output", "in"))
+        self.graph.add_net(Net("c1", "input_a", "out", "and_gate", "in1"))
+        self.graph.add_net(Net("c2", "input_b", "out", "and_gate", "in2"))
+        self.graph.add_net(Net("c3", "and_gate", "out", "output", "in"))
     
     def test_toggle_input_node_cycle(self):
         """Test that input node toggling cycles through None -> True -> False -> None"""
@@ -3309,14 +3309,14 @@ class TestModeBasedSimulation:
         self.graph.add_node(and_node)
         self.graph.add_node(output_node)
         
-        # Create connections
-        conn1 = Connection("c1", "input1", "out", "and1", "in1")
-        conn2 = Connection("c2", "input2", "out", "and1", "in2")
-        conn3 = Connection("c3", "and1", "out", "output1", "in")
+        # Create nets
+        conn1 = Net("c1", "input1", "out", "and1", "in1")
+        conn2 = Net("c2", "input2", "out", "and1", "in2")
+        conn3 = Net("c3", "and1", "out", "output1", "in")
         
-        self.graph.add_connection(conn1)
-        self.graph.add_connection(conn2)
-        self.graph.add_connection(conn3)
+        self.graph.add_net(conn1)
+        self.graph.add_net(conn2)
+        self.graph.add_net(conn3)
     
     def test_initial_mode_is_edit(self):
         """Test that the graph starts in edit mode"""
@@ -3464,7 +3464,7 @@ class TestModeBasedSimulation:
         """Test that pointer down in simulation mode blocks most editing operations"""
         self.graph.enter_simulation_mode()
         
-        # Should allow node selection but not dragging or connection creation
+        # Should allow node selection but not dragging or net creation
         result = self.graph.handle_pointer_down(60.0, 60.0)  # Click on input1
         
         assert result == True
@@ -3767,7 +3767,7 @@ class TestFeedbackLoops:
     def test_combinational_circuit_still_works(self):
         """Test that combinational circuits still work with new system"""
         # Create a simple combinational circuit (no feedback)
-        from logicsim.graph_data import GraphData, Node, Connection, NODE_REGISTRY
+        from logicsim.graph_data import GraphData, Node, Net, NODE_REGISTRY
         
         graph = GraphData()
         
@@ -3780,11 +3780,11 @@ class TestFeedbackLoops:
         graph.add_node(not_node)
         graph.add_node(output_node)
         
-        # Add connection
-        conn = Connection("c1", "input1", "out", "not1", "in")
-        graph.add_connection(conn)
-        conn2 = Connection("c2", "not1", "out", "output1", "in")
-        graph.add_connection(conn2)
+        # Add net
+        conn = Net("c1", "input1", "out", "not1", "in")
+        graph.add_net(conn)
+        conn2 = Net("c2", "not1", "out", "output1", "in")
+        graph.add_net(conn2)
         
         # Test simulation
         graph.enter_simulation_mode()
@@ -3797,8 +3797,8 @@ class TestFeedbackLoops:
         assert graph.get_node_value("output1") == False  # NOT True = False
 
 
-class TestConnectionValueVisualization:
-    """Test cases for connection-based value visualization system"""
+class TestNetValueVisualization:
+    """Test cases for net-based value visualization system"""
     
     def setup_method(self):
         """Set up test circuit for each test"""
@@ -3813,138 +3813,138 @@ class TestConnectionValueVisualization:
         self.graph.add_node(not_node)
         self.graph.add_node(output_node)
         
-        # Add connections
-        conn1 = Connection("c1", "input1", "out", "not1", "in")
-        conn2 = Connection("c2", "not1", "out", "output1", "in")
-        self.graph.add_connection(conn1)
-        self.graph.add_connection(conn2)
+        # Add nets
+        conn1 = Net("c1", "input1", "out", "not1", "in")
+        conn2 = Net("c2", "not1", "out", "output1", "in")
+        self.graph.add_net(conn1)
+        self.graph.add_net(conn2)
     
-    def test_get_connection_value_input_node(self):
-        """Test _get_connection_value for input node connections"""
+    def test_get_net_value_input_node(self):
+        """Test _get_net_value for input node nets"""
         # Set input value
         self.graph.nodes["input1"].value = True
         
-        # Test connection from input node
-        connection = self.graph.connections["c1"]
-        value, has_value = self.graph._get_connection_value(connection)
+        # Test net from input node
+        net = self.graph.nets["c1"]
+        value, has_value = self.graph._get_net_value(net)
         
         assert value == True
         assert has_value == True
     
-    def test_get_connection_value_input_node_no_value(self):
-        """Test _get_connection_value for input node with no value"""
+    def test_get_net_value_input_node_no_value(self):
+        """Test _get_net_value for input node with no value"""
         # Input node has no value set
         assert self.graph.nodes["input1"].value is None
         
-        connection = self.graph.connections["c1"]
-        value, has_value = self.graph._get_connection_value(connection)
+        net = self.graph.nets["c1"]
+        value, has_value = self.graph._get_net_value(net)
         
         assert value == False
         assert has_value == False
     
-    def test_get_connection_value_logic_gate(self):
-        """Test _get_connection_value for logic gate connections"""
+    def test_get_net_value_logic_gate(self):
+        """Test _get_net_value for logic gate nets"""
         # Set computed value on NOT gate
         self.graph.nodes["not1"].value = False
         
-        # Test connection from NOT gate
-        connection = self.graph.connections["c2"]
-        value, has_value = self.graph._get_connection_value(connection)
+        # Test net from NOT gate
+        net = self.graph.nets["c2"]
+        value, has_value = self.graph._get_net_value(net)
         
         assert value == False
         assert has_value == True
     
-    def test_get_connection_value_logic_gate_no_value(self):
-        """Test _get_connection_value for logic gate with no computed value"""
+    def test_get_net_value_logic_gate_no_value(self):
+        """Test _get_net_value for logic gate with no computed value"""
         # NOT gate has no computed value
         assert self.graph.nodes["not1"].value is None
         
-        connection = self.graph.connections["c2"]
-        value, has_value = self.graph._get_connection_value(connection)
+        net = self.graph.nets["c2"]
+        value, has_value = self.graph._get_net_value(net)
         
         assert value == False
         assert has_value == False
     
-    def test_get_connection_value_output_node(self):
-        """Test _get_connection_value for output node connections (though they have no outputs)"""
+    def test_get_net_value_output_node(self):
+        """Test _get_net_value for output node nets (though they have no outputs)"""
         # Set value on output node
         self.graph.nodes["output1"].value = True
         
-        # Create a hypothetical connection from output node for testing
-        test_conn = Connection("test", "output1", "out", "not1", "in")
-        value, has_value = self.graph._get_connection_value(test_conn)
+        # Create a hypothetical net from output node for testing
+        test_conn = Net("test", "output1", "out", "not1", "in")
+        value, has_value = self.graph._get_net_value(test_conn)
         
         assert value == True
         assert has_value == True
     
-    def test_get_connection_value_nonexistent_node(self):
-        """Test _get_connection_value for connection with nonexistent source node"""
-        # Create connection with invalid source node
-        invalid_conn = Connection("invalid", "nonexistent", "out", "not1", "in")
-        value, has_value = self.graph._get_connection_value(invalid_conn)
+    def test_get_net_value_nonexistent_node(self):
+        """Test _get_net_value for net with nonexistent source node"""
+        # Create net with invalid source node
+        invalid_conn = Net("invalid", "nonexistent", "out", "not1", "in")
+        value, has_value = self.graph._get_net_value(invalid_conn)
         
         assert value == False
         assert has_value == False
     
-    def test_get_connection_value_unknown_node_type(self):
-        """Test _get_connection_value for unknown node type"""
+    def test_get_net_value_unknown_node_type(self):
+        """Test _get_net_value for unknown node type"""
         # Create a node with unknown type
         unknown_node = Node("unknown1", "unknown_type", 100, 100, 80, 60, "Unknown", "gray", [], None)
         self.graph.add_node(unknown_node)
         
-        # Create connection from unknown node
-        unknown_conn = Connection("unknown_c", "unknown1", "out", "not1", "in")
-        value, has_value = self.graph._get_connection_value(unknown_conn)
+        # Create net from unknown node
+        unknown_conn = Net("unknown_c", "unknown1", "out", "not1", "in")
+        value, has_value = self.graph._get_net_value(unknown_conn)
         
         assert value == False
         assert has_value == False
     
-    def test_get_connection_value_all_logic_gate_types(self):
-        """Test _get_connection_value for all logic gate types"""
+    def test_get_net_value_all_logic_gate_types(self):
+        """Test _get_net_value for all logic gate types"""
         # Test AND gate
         and_node = Node.create("and1", NODE_REGISTRY.get_definition("and"), 300, 50)
         and_node.value = True
         self.graph.add_node(and_node)
-        and_conn = Connection("and_c", "and1", "out", "output1", "in")
-        value, has_value = self.graph._get_connection_value(and_conn)
+        and_conn = Net("and_c", "and1", "out", "output1", "in")
+        value, has_value = self.graph._get_net_value(and_conn)
         assert value == True and has_value == True
         
         # Test OR gate
         or_node = Node.create("or1", NODE_REGISTRY.get_definition("or"), 300, 100)
         or_node.value = False
         self.graph.add_node(or_node)
-        or_conn = Connection("or_c", "or1", "out", "output1", "in")
-        value, has_value = self.graph._get_connection_value(or_conn)
+        or_conn = Net("or_c", "or1", "out", "output1", "in")
+        value, has_value = self.graph._get_net_value(or_conn)
         assert value == False and has_value == True
         
         # Test NOR gate
         nor_node = Node.create("nor1", NODE_REGISTRY.get_definition("nor"), 300, 150)
         nor_node.value = True
         self.graph.add_node(nor_node)
-        nor_conn = Connection("nor_c", "nor1", "out", "output1", "in")
-        value, has_value = self.graph._get_connection_value(nor_conn)
+        nor_conn = Net("nor_c", "nor1", "out", "output1", "in")
+        value, has_value = self.graph._get_net_value(nor_conn)
         assert value == True and has_value == True
     
-    def test_to_slint_format_includes_connection_values_edit_mode(self):
-        """Test that to_slint_format includes connection values in edit mode"""
+    def test_to_slint_format_includes_net_values_edit_mode(self):
+        """Test that to_slint_format includes net values in edit mode"""
         # In edit mode, simulation_mode should be False
         graph_data = self.graph.to_slint_format()
         
-        assert "connections" in graph_data
-        assert len(graph_data["connections"]) == 2
+        assert "nets" in graph_data
+        assert len(graph_data["nets"]) == 2
         
-        for conn in graph_data["connections"]:
+        for conn in graph_data["nets"]:
             assert "value" in conn
             assert "has_value" in conn
             assert "simulation_mode" in conn
             
             # In edit mode, simulation_mode should be False
             assert conn["simulation_mode"] == False
-            # Connections should have no values in edit mode
+            # Nets should have no values in edit mode
             assert conn["has_value"] == False
     
-    def test_to_slint_format_includes_connection_values_simulation_mode(self):
-        """Test that to_slint_format includes connection values in simulation mode"""
+    def test_to_slint_format_includes_net_values_simulation_mode(self):
+        """Test that to_slint_format includes net values in simulation mode"""
         # Enter simulation mode and run simulation
         self.graph.enter_simulation_mode()
         self.graph.set_input_value("input1", True)
@@ -3952,22 +3952,22 @@ class TestConnectionValueVisualization:
         
         graph_data = self.graph.to_slint_format()
         
-        assert "connections" in graph_data
-        assert len(graph_data["connections"]) == 2
+        assert "nets" in graph_data
+        assert len(graph_data["nets"]) == 2
         
-        for conn in graph_data["connections"]:
+        for conn in graph_data["nets"]:
             assert "value" in conn
             assert "has_value" in conn
             assert "simulation_mode" in conn
             
             # In simulation mode, simulation_mode should be True
             assert conn["simulation_mode"] == True
-            # Connections should have values in simulation mode
+            # Nets should have values in simulation mode
             assert conn["has_value"] == True
         
-        # Check specific connection values
-        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
-        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        # Check specific net values
+        c1_conn = next(c for c in graph_data["nets"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["nets"] if c["id"] == "c2")
         
         # c1: input1(True) -> not1, so value should be True
         assert c1_conn["value"] == True
@@ -3996,8 +3996,8 @@ class TestConnectionValueVisualization:
             # In simulation mode, all nodes should have values
             assert node["has_value"] == True
     
-    def test_to_slint_format_connection_values_with_different_input_states(self):
-        """Test connection values with different input states"""
+    def test_to_slint_format_net_values_with_different_input_states(self):
+        """Test net values with different input states"""
         self.graph.enter_simulation_mode()
         
         # Test with input = False
@@ -4005,8 +4005,8 @@ class TestConnectionValueVisualization:
         self.graph.simulate()
         
         graph_data = self.graph.to_slint_format()
-        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
-        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        c1_conn = next(c for c in graph_data["nets"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["nets"] if c["id"] == "c2")
         
         # c1: input1(False) -> not1, so value should be False
         assert c1_conn["value"] == False
@@ -4018,8 +4018,8 @@ class TestConnectionValueVisualization:
         self.graph.simulate()
         
         graph_data = self.graph.to_slint_format()
-        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
-        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        c1_conn = next(c for c in graph_data["nets"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["nets"] if c["id"] == "c2")
         
         # c1: input1(True) -> not1, so value should be True
         assert c1_conn["value"] == True
@@ -4030,8 +4030,8 @@ class TestConnectionValueVisualization:
         """Test visual behavior expectations in edit mode"""
         graph_data = self.graph.to_slint_format()
         
-        # All connections should have simulation_mode = False
-        for conn in graph_data["connections"]:
+        # All nets should have simulation_mode = False
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == False
             assert conn["has_value"] == False
             # This will result in black lines (2px) in the UI
@@ -4049,8 +4049,8 @@ class TestConnectionValueVisualization:
         
         graph_data = self.graph.to_slint_format()
         
-        # All connections should have simulation_mode = True
-        for conn in graph_data["connections"]:
+        # All nets should have simulation_mode = True
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == True
             assert conn["has_value"] == True
             # This will result in colored lines (4px) in the UI
@@ -4060,8 +4060,8 @@ class TestConnectionValueVisualization:
             assert node["has_value"] == True
             # Input/output nodes will show green/red, logic gates will show gray
     
-    def test_different_node_types_connection_values(self):
-        """Test connection values for different node types"""
+    def test_different_node_types_net_values(self):
+        """Test net values for different node types"""
         # Create a more complex circuit with different node types
         graph = GraphData()
         
@@ -4082,20 +4082,20 @@ class TestConnectionValueVisualization:
         for node in [input_a, input_b, and_gate, or_gate, not_gate, nor_gate, output]:
             graph.add_node(node)
         
-        # Add connections
-        connections = [
-            Connection("c1", "input_a", "out", "and1", "in1"),
-            Connection("c2", "input_b", "out", "and1", "in2"),
-            Connection("c3", "and1", "out", "or1", "in1"),
-            Connection("c4", "input_a", "out", "or1", "in2"),
-            Connection("c5", "or1", "out", "not1", "in"),
-            Connection("c6", "not1", "out", "nor1", "in1"),
-            Connection("c7", "input_b", "out", "nor1", "in2"),
-            Connection("c8", "nor1", "out", "output1", "in")
+        # Add nets
+        nets = [
+            Net("c1", "input_a", "out", "and1", "in1"),
+            Net("c2", "input_b", "out", "and1", "in2"),
+            Net("c3", "and1", "out", "or1", "in1"),
+            Net("c4", "input_a", "out", "or1", "in2"),
+            Net("c5", "or1", "out", "not1", "in"),
+            Net("c6", "not1", "out", "nor1", "in1"),
+            Net("c7", "input_b", "out", "nor1", "in2"),
+            Net("c8", "nor1", "out", "output1", "in")
         ]
         
-        for conn in connections:
-            graph.add_connection(conn)
+        for conn in nets:
+            graph.add_net(conn)
         
         # Test in simulation mode
         graph.enter_simulation_mode()
@@ -4105,31 +4105,31 @@ class TestConnectionValueVisualization:
         
         graph_data = graph.to_slint_format()
         
-        # Verify all connections have values
-        for conn in graph_data["connections"]:
+        # Verify all nets have values
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == True
             assert conn["has_value"] == True
             assert isinstance(conn["value"], bool)
         
-        # Verify specific connection values based on logic
-        connections_by_id = {c["id"]: c for c in graph_data["connections"]}
+        # Verify specific net values based on logic
+        nets_by_id = {c["id"]: c for c in graph_data["nets"]}
         
         # c1: input_a(True) -> and1
-        assert connections_by_id["c1"]["value"] == True
+        assert nets_by_id["c1"]["value"] == True
         # c2: input_b(False) -> and1
-        assert connections_by_id["c2"]["value"] == False
+        assert nets_by_id["c2"]["value"] == False
         # c3: and1(True AND False = False) -> or1
-        assert connections_by_id["c3"]["value"] == False
+        assert nets_by_id["c3"]["value"] == False
         # c4: input_a(True) -> or1
-        assert connections_by_id["c4"]["value"] == True
+        assert nets_by_id["c4"]["value"] == True
         # c5: or1(False OR True = True) -> not1
-        assert connections_by_id["c5"]["value"] == True
+        assert nets_by_id["c5"]["value"] == True
         # c6: not1(NOT True = False) -> nor1
-        assert connections_by_id["c6"]["value"] == False
+        assert nets_by_id["c6"]["value"] == False
         # c7: input_b(False) -> nor1
-        assert connections_by_id["c7"]["value"] == False
+        assert nets_by_id["c7"]["value"] == False
         # c8: nor1(False NOR False = True) -> output1
-        assert connections_by_id["c8"]["value"] == True
+        assert nets_by_id["c8"]["value"] == True
     
     def test_edge_case_no_simulation_run(self):
         """Test edge case where simulation mode is entered but simulation not run"""
@@ -4138,10 +4138,10 @@ class TestConnectionValueVisualization:
         
         graph_data = self.graph.to_slint_format()
         
-        # Should be in simulation mode but connections may not have values
-        for conn in graph_data["connections"]:
+        # Should be in simulation mode but nets may not have values
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == True
-            # Connections may or may not have values depending on node state
+            # Nets may or may not have values depending on node state
     
     def test_edge_case_partial_simulation_values(self):
         """Test edge case where only some nodes have simulation values"""
@@ -4153,7 +4153,7 @@ class TestConnectionValueVisualization:
         graph_data = self.graph.to_slint_format()
         
         # Should handle mixed value states gracefully
-        for conn in graph_data["connections"]:
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == True
             assert "value" in conn
             assert "has_value" in conn
@@ -4164,7 +4164,7 @@ class TestConnectionValueVisualization:
         """Test edge case of transitioning between edit and simulation modes"""
         # Start in edit mode
         graph_data = self.graph.to_slint_format()
-        assert all(not conn["simulation_mode"] for conn in graph_data["connections"])
+        assert all(not conn["simulation_mode"] for conn in graph_data["nets"])
         
         # Enter simulation mode
         self.graph.enter_simulation_mode()
@@ -4172,18 +4172,18 @@ class TestConnectionValueVisualization:
         self.graph.simulate()
         
         graph_data = self.graph.to_slint_format()
-        assert all(conn["simulation_mode"] for conn in graph_data["connections"])
-        assert all(conn["has_value"] for conn in graph_data["connections"])
+        assert all(conn["simulation_mode"] for conn in graph_data["nets"])
+        assert all(conn["has_value"] for conn in graph_data["nets"])
         
         # Exit simulation mode (back to edit)
         self.graph.enter_edit_mode()
         
         graph_data = self.graph.to_slint_format()
-        assert all(not conn["simulation_mode"] for conn in graph_data["connections"])
-        assert all(not conn["has_value"] for conn in graph_data["connections"])
+        assert all(not conn["simulation_mode"] for conn in graph_data["nets"])
+        assert all(not conn["has_value"] for conn in graph_data["nets"])
     
-    def test_sr_nor_latch_connection_values(self):
-        """Test connection values in SR NOR latch (feedback circuit)"""
+    def test_sr_nor_latch_net_values(self):
+        """Test net values in SR NOR latch (feedback circuit)"""
         from logicsim.graph_data import create_sr_nor_latch_demo
         
         latch_graph = create_sr_nor_latch_demo()
@@ -4196,22 +4196,22 @@ class TestConnectionValueVisualization:
         
         graph_data = latch_graph.to_slint_format()
         
-        # All connections should have values in simulation mode
-        for conn in graph_data["connections"]:
+        # All nets should have values in simulation mode
+        for conn in graph_data["nets"]:
             assert conn["simulation_mode"] == True
             assert conn["has_value"] == True
             assert isinstance(conn["value"], bool)
         
-        # Verify feedback loop connections have proper values
-        connections_by_id = {c["id"]: c for c in graph_data["connections"]}
+        # Verify feedback loop nets have proper values
+        nets_by_id = {c["id"]: c for c in graph_data["nets"]}
         
-        # Should have feedback connections c3 and c4
-        assert "c3" in connections_by_id  # nor1 -> nor2 (Q -> NOR2)
-        assert "c4" in connections_by_id  # nor2 -> nor1 (Q̅ -> NOR1)
+        # Should have feedback nets c3 and c4
+        assert "c3" in nets_by_id  # nor1 -> nor2 (Q -> NOR2)
+        assert "c4" in nets_by_id  # nor2 -> nor1 (Q̅ -> NOR1)
         
         # In SET state, Q=1, Q̅=0
-        q_feedback = connections_by_id["c3"]["value"]    # Q feedback
-        q_not_feedback = connections_by_id["c4"]["value"] # Q̅ feedback
+        q_feedback = nets_by_id["c3"]["value"]    # Q feedback
+        q_not_feedback = nets_by_id["c4"]["value"] # Q̅ feedback
         
         # These should be opposite values
         assert q_feedback != q_not_feedback

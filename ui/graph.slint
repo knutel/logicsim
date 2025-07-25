@@ -18,8 +18,8 @@ export component Connector {
 }
 
 
-// Connection line component using Path
-export component ConnectionLine {
+// Net line component using Path
+export component NetLine {
     in property <length> start-x;
     in property <length> start-y;
     in property <length> end-x;
@@ -68,8 +68,8 @@ export component ConnectionLine {
     }
 }
 
-// Pending connection line component (gray dashed appearance)
-export component PendingConnectionLine {
+// Pending net line component (gray dashed appearance)
+export component PendingNetLine {
     in property <length> start-x;
     in property <length> start-y;
     in property <length> end-x;
@@ -82,7 +82,7 @@ export component PendingConnectionLine {
     width: 100%;
     height: 100%;
     
-    // Draw solid line in gray to distinguish from regular connections
+    // Draw solid line in gray to distinguish from regular nets
     Path {
         x: parent.x;
         y: parent.y;
@@ -128,27 +128,27 @@ export struct NodeData {
     has_value: bool,    // Whether the node has a simulation value set
 }
 
-// Connection data structure
-export struct ConnectionData {
+// Net data structure
+export struct NetData {
     id: string,
     start_x: length,
     start_y: length,
     end_x: length,
     end_y: length,
-    value: bool,           // Logical value carried by this connection
-    has_value: bool,       // Whether the connection carries a valid value
+    value: bool,           // Logical value carried by this net
+    has_value: bool,       // Whether the net carries a valid value
     simulation_mode: bool, // Whether we're in simulation mode
 }
 
 // Main graph view component
 export component GraphView {
     in property <[NodeData]> nodes: [];
-    in property <[ConnectionData]> connections: [];
+    in property <[NetData]> nets: [];
     in property <[string]> selected-nodes: [];
-    in property <[string]> selected-connections: [];
+    in property <[string]> selected-nets: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
-    in property <bool> creating-connection: false;
+    in property <bool> creating-net: false;
     in property <length> pending-start-x;
     in property <length> pending-start-y;
     in property <length> pending-end-x;
@@ -250,20 +250,20 @@ export component GraphView {
                 }
             }
             
-            // Dynamic connections rendering
-            for connection in connections: ConnectionLine {
-                start-x: connection.start_x;
-                start-y: connection.start_y;
-                end-x: connection.end_x;
-                end-y: connection.end_y;
-                is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
-                value: connection.value;
-                has-value: connection.has_value;
-                simulation-mode: connection.simulation_mode;
+            // Dynamic nets rendering
+            for net in nets: NetLine {
+                start-x: net.start_x;
+                start-y: net.start_y;
+                end-x: net.end_x;
+                end-y: net.end_y;
+                is-selected: selected-nets.length > 0 && selected-nets[0] == net.id;
+                value: net.value;
+                has-value: net.has_value;
+                simulation-mode: net.simulation_mode;
             }
             
-            // Pending connection rendering (dotted line)
-            if creating-connection: PendingConnectionLine {
+            // Pending net rendering (dotted line)
+            if creating-net: PendingNetLine {
                 start-x: pending-start-x;
                 start-y: pending-start-y;
                 end-x: pending-end-x;

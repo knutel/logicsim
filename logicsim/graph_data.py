@@ -91,8 +91,8 @@ class Node:
 
 
 @dataclass
-class Connection:
-    """Represents a connection between two connectors"""
+class Net:
+    """Represents a net between two connectors"""
     id: str
     from_node_id: str
     from_connector_id: str
@@ -212,9 +212,9 @@ class GraphData:
     
     def __init__(self):
         self.nodes: Dict[str, Node] = {}
-        self.connections: Dict[str, Connection] = {}
+        self.nets: Dict[str, Net] = {}
         self.selected_node_id: str | None = None  # Track currently selected node
-        self.selected_connection_id: str | None = None  # Track currently selected connection
+        self.selected_net_id: str | None = None  # Track currently selected net
         
         # Movement state tracking
         self.pointer_state: PointerState = PointerState.IDLE
@@ -223,7 +223,7 @@ class GraphData:
         self.drag_offset: tuple[float, float] = (0.0, 0.0)  # Offset within node when drag started
         self.movement_threshold: float = 5.0  # Minimum pixels to consider movement
         self.click_selected_different_node: bool = False  # Track if we selected a different node on click
-        self.click_selected_different_connection: bool = False  # Track if we selected a different connection on click
+        self.click_selected_different_net: bool = False  # Track if we selected a different net on click
         
         # Label editing state tracking
         self.editing_node_id: str | None = None
@@ -231,12 +231,12 @@ class GraphData:
         self.last_click_time: float = 0.0
         self.double_click_threshold: float = 0.5  # seconds
         
-        # Connection creation state tracking
-        self.creating_connection: bool = False
-        self.connection_start_node_id: str | None = None
-        self.connection_start_connector_id: str | None = None
-        self.pending_connection_end_x: float = 0.0
-        self.pending_connection_end_y: float = 0.0
+        # Net creation state tracking
+        self.creating_net: bool = False
+        self.net_start_node_id: str | None = None
+        self.net_start_connector_id: str | None = None
+        self.pending_net_end_x: float = 0.0
+        self.pending_net_end_y: float = 0.0
         
         # Toolbox and node creation state tracking
         self.selected_node_type: str | None = None
@@ -260,10 +260,10 @@ class GraphData:
         self.nodes[node.id] = node
         self.logger.debug(f"Added node: {node.id} ({node.node_type})")
     
-    def add_connection(self, connection: Connection) -> None:
-        """Add a connection to the graph"""
-        self.connections[connection.id] = connection
-        self.logger.debug(f"Added connection: {connection.from_node_id}:{connection.from_connector_id} -> {connection.to_node_id}:{connection.to_connector_id}")
+    def add_net(self, net: Net) -> None:
+        """Add a net to the graph"""
+        self.nets[net.id] = net
+        self.logger.debug(f"Added net: {net.from_node_id}:{net.from_connector_id} -> {net.to_node_id}:{net.to_connector_id}")
     
     def set_input_value(self, node_id: str, value: bool) -> bool:
         """
@@ -322,10 +322,10 @@ class GraphData:
         dependency_graph: Dict[str, List[str]] = {node_id: [] for node_id in self.nodes.keys()}
         in_degree: Dict[str, int] = {node_id: 0 for node_id in self.nodes.keys()}
         
-        # Count input connections for each node to calculate in-degree
-        for connection in self.connections.values():
-            from_node = connection.from_node_id
-            to_node = connection.to_node_id
+        # Count input nets for each node to calculate in-degree
+        for net in self.nets.values():
+            from_node = net.from_node_id
+            to_node = net.to_node_id
             
             # Add dependency: from_node must be evaluated before to_node
             dependency_graph[from_node].append(to_node)
@@ -383,9 +383,9 @@ class GraphData:
             on_stack[node_id] = True
             
             # Consider successors of this node
-            for connection in self.connections.values():
-                if connection.from_node_id == node_id:
-                    successor = connection.to_node_id
+            for net in self.nets.values():
+                if net.from_node_id == node_id:
+                    successor = net.to_node_id
                     
                     if successor not in index:
                         # Successor has not been visited; recurse on it
@@ -435,8 +435,8 @@ class GraphData:
             elif len(scc) == 1:
                 # Check for self-loop
                 node_id = next(iter(scc))
-                for connection in self.connections.values():
-                    if connection.from_node_id == node_id and connection.to_node_id == node_id:
+                for net in self.nets.values():
+                    if net.from_node_id == node_id and net.to_node_id == node_id:
                         has_feedback = True
                         feedback_components.append(scc)
                         self.logger.debug(f"Self-loop detected: {node_id}")
@@ -505,9 +505,9 @@ class GraphData:
             
             # Collect input values for this node
             input_values = []
-            for connection in self.connections.values():
-                if connection.to_node_id == node_id:
-                    source_node = self.nodes[connection.from_node_id]
+            for net in self.nets.values():
+                if net.to_node_id == node_id:
+                    source_node = self.nodes[net.from_node_id]
                     
                     if source_node.value is None:
                         # This shouldn't happen with proper topological sorting
@@ -562,9 +562,9 @@ class GraphData:
                 
                 # Collect input values for this node
                 input_values = []
-                for connection in self.connections.values():
-                    if connection.to_node_id == node_id:
-                        source_node = self.nodes[connection.from_node_id]
+                for net in self.nets.values():
+                    if net.to_node_id == node_id:
+                        source_node = self.nodes[net.from_node_id]
                         if source_node.value is not None:
                             input_values.append(source_node.value)
                 
@@ -621,26 +621,26 @@ class GraphData:
         Returns:
             bool: True if all required inputs are available
         """
-        # Count expected inputs based on connections
-        expected_inputs = sum(1 for conn in self.connections.values() 
+        # Count expected inputs based on nets
+        expected_inputs = sum(1 for conn in self.nets.values() 
                             if conn.to_node_id == node_id)
         
         return available_inputs >= expected_inputs
     
-    def _get_connection_value(self, connection: Connection) -> tuple[bool, bool]:
+    def _get_net_value(self, net: Net) -> tuple[bool, bool]:
         """
-        Get the logical value carried by a connection.
+        Get the logical value carried by a net.
         
         Args:
-            connection: The connection to evaluate
+            net: The net to evaluate
             
         Returns:
             tuple[bool, bool]: (value, has_value) where:
                 - value: the logical value (True/False) 
-                - has_value: whether the connection carries a valid value
+                - has_value: whether the net carries a valid value
         """
         # Get the source node
-        source_node = self.nodes.get(connection.from_node_id)
+        source_node = self.nodes.get(net.from_node_id)
         if source_node is None:
             return False, False
         
@@ -660,7 +660,7 @@ class GraphData:
                 return False, False
         
         # For future multi-output nodes, we would need to:
-        # 1. Determine which output connector this connection comes from
+        # 1. Determine which output connector this net comes from
         # 2. Get the value for that specific output connector
         # For now, return no value for unknown node types
         return False, False
@@ -831,11 +831,11 @@ class GraphData:
                 return node_id
         return None
     
-    def is_point_on_connection(self, connection: Connection, x: float, y: float, tolerance: float = 8.0) -> bool:
-        """Check if point (x,y) is within tolerance distance of connection line"""
-        # Get connection endpoints
-        start_x, start_y = self.get_connector_absolute_position(connection.from_node_id, connection.from_connector_id)
-        end_x, end_y = self.get_connector_absolute_position(connection.to_node_id, connection.to_connector_id)
+    def is_point_on_net(self, net: Net, x: float, y: float, tolerance: float = 8.0) -> bool:
+        """Check if point (x,y) is within tolerance distance of net line"""
+        # Get net endpoints
+        start_x, start_y = self.get_connector_absolute_position(net.from_node_id, net.from_connector_id)
+        end_x, end_y = self.get_connector_absolute_position(net.to_node_id, net.to_connector_id)
         
         # Calculate distance from point to line segment
         distance = self.point_to_line_segment_distance(x, y, start_x, start_y, end_x, end_y)
@@ -861,12 +861,12 @@ class GraphData:
         # Calculate distance from point to closest point on segment
         return math.sqrt((px - closest_x) ** 2 + (py - closest_y) ** 2)
     
-    def get_connection_at_position(self, x: float, y: float) -> str | None:
-        """Get the ID of the connection at the given position, or None if no connection"""
-        # Iterate through connections in reverse order (later connections drawn on top take priority)
-        for connection_id, connection in reversed(list(self.connections.items())):
-            if self.is_point_on_connection(connection, x, y):
-                return connection_id
+    def get_net_at_position(self, x: float, y: float) -> str | None:
+        """Get the ID of the net at the given position, or None if no net"""
+        # Iterate through nets in reverse order (later nets drawn on top take priority)
+        for net_id, net in reversed(list(self.nets.items())):
+            if self.is_point_on_net(net, x, y):
+                return net_id
         return None
     
     def get_connector_at_position(self, x: float, y: float, tolerance: float = 8.0) -> tuple[str, str] | None:
@@ -894,9 +894,9 @@ class GraphData:
         
         previous_selection = self.selected_node_id
         
-        # Deselect any selected connection (mutual exclusion)
-        if self.selected_connection_id is not None:
-            self.deselect_connection()
+        # Deselect any selected net (mutual exclusion)
+        if self.selected_net_id is not None:
+            self.deselect_net()
         
         self.selected_node_id = node_id
         
@@ -920,32 +920,32 @@ class GraphData:
         """Get the ID of the currently selected node"""
         return self.selected_node_id
     
-    def select_connection(self, connection_id: str) -> None:
-        """Select a specific connection by ID"""
-        if connection_id not in self.connections:
-            raise ValueError(f"Connection with ID '{connection_id}' does not exist")
+    def select_net(self, net_id: str) -> None:
+        """Select a specific net by ID"""
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
         
-        previous_selection = self.selected_connection_id
+        previous_selection = self.selected_net_id
         
         # Deselect any selected node (mutual exclusion)
         if self.selected_node_id is not None:
             self.deselect_node()
         
-        self.selected_connection_id = connection_id
+        self.selected_net_id = net_id
         
-        if previous_selection != connection_id:
-            self.logger.debug(f"Selected connection: {connection_id} (previously: {previous_selection})")
+        if previous_selection != net_id:
+            self.logger.debug(f"Selected net: {net_id} (previously: {previous_selection})")
     
-    def deselect_connection(self) -> None:
-        """Deselect the currently selected connection"""
-        if self.selected_connection_id is not None:
-            previous_selection = self.selected_connection_id
-            self.selected_connection_id = None
-            self.logger.debug(f"Deselected connection: {previous_selection}")
+    def deselect_net(self) -> None:
+        """Deselect the currently selected net"""
+        if self.selected_net_id is not None:
+            previous_selection = self.selected_net_id
+            self.selected_net_id = None
+            self.logger.debug(f"Deselected net: {previous_selection}")
     
-    def get_selected_connection(self) -> str | None:
-        """Get the ID of the currently selected connection"""
-        return self.selected_connection_id
+    def get_selected_net(self) -> str | None:
+        """Get the ID of the currently selected net"""
+        return self.selected_net_id
     
     def calculate_movement_distance(self, start_x: float, start_y: float, end_x: float, end_y: float) -> float:
         """Calculate the distance between two points"""
@@ -957,16 +957,16 @@ class GraphData:
             self.logger.warning(f"Cannot delete non-existent node: {node_id}")
             return False
         
-        # Find all connections that reference this node
-        connections_to_delete = []
-        for connection_id, connection in self.connections.items():
-            if connection.from_node_id == node_id or connection.to_node_id == node_id:
-                connections_to_delete.append(connection_id)
+        # Find all nets that reference this node
+        nets_to_delete = []
+        for net_id, net in self.nets.items():
+            if net.from_node_id == node_id or net.to_node_id == node_id:
+                nets_to_delete.append(net_id)
         
-        # Delete all connections that reference this node
-        for connection_id in connections_to_delete:
-            del self.connections[connection_id]
-            self.logger.debug(f"Cascade deleted connection: {connection_id}")
+        # Delete all nets that reference this node
+        for net_id in nets_to_delete:
+            del self.nets[net_id]
+            self.logger.debug(f"Cascade deleted net: {net_id}")
         
         # Clean up selection state
         if self.selected_node_id == node_id:
@@ -981,45 +981,45 @@ class GraphData:
         
         # Delete the node
         del self.nodes[node_id]
-        self.logger.debug(f"Deleted node: {node_id} (cascade deleted {len(connections_to_delete)} connections)")
+        self.logger.debug(f"Deleted node: {node_id} (cascade deleted {len(nets_to_delete)} nets)")
         
         return True  # Always refresh UI after node deletion
     
-    def delete_connection(self, connection_id: str) -> bool:
-        """Delete a connection. Returns True if UI should be refreshed."""
-        if connection_id not in self.connections:
-            self.logger.warning(f"Cannot delete non-existent connection: {connection_id}")
+    def delete_net(self, net_id: str) -> bool:
+        """Delete a net. Returns True if UI should be refreshed."""
+        if net_id not in self.nets:
+            self.logger.warning(f"Cannot delete non-existent net: {net_id}")
             return False
         
         # Clean up selection state
-        if self.selected_connection_id == connection_id:
-            self.selected_connection_id = None
-            self.logger.debug(f"Cleared connection selection due to deletion: {connection_id}")
+        if self.selected_net_id == net_id:
+            self.selected_net_id = None
+            self.logger.debug(f"Cleared net selection due to deletion: {net_id}")
         
-        # Delete the connection
-        del self.connections[connection_id]
-        self.logger.debug(f"Deleted connection: {connection_id}")
+        # Delete the net
+        del self.nets[net_id]
+        self.logger.debug(f"Deleted net: {net_id}")
         
-        return True  # Always refresh UI after connection deletion
+        return True  # Always refresh UI after net deletion
     
     def delete_selected(self) -> bool:
-        """Delete the currently selected node or connection. Returns True if something was deleted."""
+        """Delete the currently selected node or net. Returns True if something was deleted."""
         if self.simulation_mode:
             self.logger.debug("Deletion is blocked in simulation mode")
             return False
         
         if self.selected_node_id is not None:
             return self.delete_node(self.selected_node_id)
-        elif self.selected_connection_id is not None:
-            return self.delete_connection(self.selected_connection_id)
+        elif self.selected_net_id is not None:
+            return self.delete_net(self.selected_net_id)
         else:
             self.logger.debug("Delete requested but nothing is selected")
             return False
     
-    def start_connection_creation(self, node_id: str, connector_id: str) -> bool:
-        """Start creating a connection from the specified connector. Returns True if UI should be refreshed."""
+    def start_net_creation(self, node_id: str, connector_id: str) -> bool:
+        """Start creating a net from the specified connector. Returns True if UI should be refreshed."""
         if node_id not in self.nodes:
-            self.logger.warning(f"Cannot start connection from non-existent node: {node_id}")
+            self.logger.warning(f"Cannot start net from non-existent node: {node_id}")
             return False
         
         node = self.nodes[node_id]
@@ -1030,7 +1030,7 @@ class GraphData:
                 break
         
         if connector is None:
-            self.logger.warning(f"Cannot start connection from non-existent connector: {node_id}:{connector_id}")
+            self.logger.warning(f"Cannot start net from non-existent connector: {node_id}:{connector_id}")
             return False
         
         # Cancel any existing label editing
@@ -1040,87 +1040,87 @@ class GraphData:
         # Clear any existing selections
         if self.selected_node_id is not None:
             self.deselect_node()
-        if self.selected_connection_id is not None:
-            self.deselect_connection()
+        if self.selected_net_id is not None:
+            self.deselect_net()
         
-        # Start connection creation
-        self.creating_connection = True
-        self.connection_start_node_id = node_id
-        self.connection_start_connector_id = connector_id
+        # Start net creation
+        self.creating_net = True
+        self.net_start_node_id = node_id
+        self.net_start_connector_id = connector_id
         
-        # Initialize pending connection end point at the connector position
+        # Initialize pending net end point at the connector position
         connector_x, connector_y = self.get_connector_absolute_position(node_id, connector_id)
-        self.pending_connection_end_x = connector_x
-        self.pending_connection_end_y = connector_y
+        self.pending_net_end_x = connector_x
+        self.pending_net_end_y = connector_y
         
-        self.logger.debug(f"Started connection creation from {node_id}:{connector_id}")
+        self.logger.debug(f"Started net creation from {node_id}:{connector_id}")
         return True
     
-    def update_pending_connection(self, x: float, y: float) -> bool:
-        """Update the end point of the pending connection. Returns True if UI should be refreshed."""
-        if not self.creating_connection:
+    def update_pending_net(self, x: float, y: float) -> bool:
+        """Update the end point of the pending net. Returns True if UI should be refreshed."""
+        if not self.creating_net:
             return False
         
-        self.pending_connection_end_x = x
-        self.pending_connection_end_y = y
+        self.pending_net_end_x = x
+        self.pending_net_end_y = y
         return True
     
-    def complete_connection_creation(self, end_node_id: str, end_connector_id: str) -> bool:
-        """Complete connection creation by connecting to the specified connector. Returns True if UI should be refreshed."""
-        if not self.creating_connection:
-            self.logger.warning("Cannot complete connection creation - not in creation mode")
+    def complete_net_creation(self, end_node_id: str, end_connector_id: str) -> bool:
+        """Complete net creation by connecting to the specified connector. Returns True if UI should be refreshed."""
+        if not self.creating_net:
+            self.logger.warning("Cannot complete net creation - not in creation mode")
             return False
         
-        if self.connection_start_node_id is None or self.connection_start_connector_id is None:
-            self.logger.warning("Cannot complete connection creation - missing start connector")
-            self.cancel_connection_creation()
+        if self.net_start_node_id is None or self.net_start_connector_id is None:
+            self.logger.warning("Cannot complete net creation - missing start connector")
+            self.cancel_net_creation()
             return True
         
-        # Validate the connection can be created
-        if not self.can_create_connection(self.connection_start_node_id, self.connection_start_connector_id, 
+        # Validate the net can be created
+        if not self.can_create_net(self.net_start_node_id, self.net_start_connector_id, 
                                         end_node_id, end_connector_id):
-            self.logger.debug(f"Cannot create connection from {self.connection_start_node_id}:{self.connection_start_connector_id} to {end_node_id}:{end_connector_id}")
-            self.cancel_connection_creation()
+            self.logger.debug(f"Cannot create net from {self.net_start_node_id}:{self.net_start_connector_id} to {end_node_id}:{end_connector_id}")
+            self.cancel_net_creation()
             return True
         
-        # Generate unique connection ID
-        connection_id = f"conn_{len(self.connections) + 1}"
-        while connection_id in self.connections:
-            connection_id = f"conn_{len(self.connections) + hash(connection_id) % 1000}"
+        # Generate unique net ID
+        net_id = f"net_{len(self.nets) + 1}"
+        while net_id in self.nets:
+            net_id = f"net_{len(self.nets) + hash(net_id) % 1000}"
         
-        # Create the connection
-        connection = Connection(
-            id=connection_id,
-            from_node_id=self.connection_start_node_id,
-            from_connector_id=self.connection_start_connector_id,
+        # Create the net
+        net = Net(
+            id=net_id,
+            from_node_id=self.net_start_node_id,
+            from_connector_id=self.net_start_connector_id,
             to_node_id=end_node_id,
             to_connector_id=end_connector_id
         )
         
-        self.add_connection(connection)
+        self.add_net(net)
         
-        # Clear connection creation state
-        self.cancel_connection_creation()
+        # Clear net creation state
+        self.cancel_net_creation()
         
-        self.logger.debug(f"Created connection: {connection.id}")
+        self.logger.debug(f"Created net: {net.id}")
         return True
     
-    def cancel_connection_creation(self) -> bool:
-        """Cancel connection creation and return to idle state. Returns True if UI should be refreshed."""
-        if not self.creating_connection:
+    def cancel_net_creation(self) -> bool:
+        """Cancel net creation and return to idle state. Returns True if UI should be refreshed."""
+        if not self.creating_net:
             return False
         
-        self.creating_connection = False
-        self.connection_start_node_id = None
-        self.connection_start_connector_id = None
-        self.pending_connection_end_x = 0.0
-        self.pending_connection_end_y = 0.0
+        self.creating_net = False
+        self.net_start_node_id = None
+        self.net_start_connector_id = None
+        self.pending_net_end_x = 0.0
+        self.pending_net_end_y = 0.0
         
-        self.logger.debug("Cancelled connection creation")
+        self.logger.debug("Cancelled net creation")
         return True
     
-    def can_create_connection(self, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> bool:
-        """Check if a connection can be created between the specified connectors"""
+    def can_create_net(self, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> bool:
+        """Check if a net can be created between the specified connectors"""
         # Check that both nodes exist
         if from_node_id not in self.nodes or to_node_id not in self.nodes:
             return False
@@ -1148,31 +1148,31 @@ class GraphData:
         if from_connector is None or to_connector is None:
             return False
         
-        # Connection must be from output to input or input to output
+        # Net must be from output to input or input to output
         if from_connector.is_input == to_connector.is_input:
             return False
         
-        # Check for duplicate connections
-        for connection in self.connections.values():
-            if (connection.from_node_id == from_node_id and connection.from_connector_id == from_connector_id and
-                connection.to_node_id == to_node_id and connection.to_connector_id == to_connector_id):
+        # Check for duplicate nets
+        for net in self.nets.values():
+            if (net.from_node_id == from_node_id and net.from_connector_id == from_connector_id and
+                net.to_node_id == to_node_id and net.to_connector_id == to_connector_id):
                 return False
             # Also check reverse direction
-            if (connection.from_node_id == to_node_id and connection.from_connector_id == to_connector_id and
-                connection.to_node_id == from_node_id and connection.to_connector_id == from_connector_id):
+            if (net.from_node_id == to_node_id and net.from_connector_id == to_connector_id and
+                net.to_node_id == from_node_id and net.to_connector_id == from_connector_id):
                 return False
         
-        # Input connectors can only have one incoming connection
-        # Check if we're connecting TO an input connector that already has a connection
+        # Input connectors can only have one incoming net
+        # Check if we're connecting TO an input connector that already has a net
         if to_connector.is_input:
-            for connection in self.connections.values():
-                if connection.to_node_id == to_node_id and connection.to_connector_id == to_connector_id:
+            for net in self.nets.values():
+                if net.to_node_id == to_node_id and net.to_connector_id == to_connector_id:
                     return False
         
-        # If from_connector is input, check if it already has incoming connection
+        # If from_connector is input, check if it already has incoming net
         if from_connector.is_input:
-            for connection in self.connections.values():
-                if connection.to_node_id == from_node_id and connection.to_connector_id == from_connector_id:
+            for net in self.nets.values():
+                if net.to_node_id == from_node_id and net.to_connector_id == from_connector_id:
                     return False
         
         return True
@@ -1188,14 +1188,14 @@ class GraphData:
             return False
         
         # Clear any existing states when entering toolbox creation mode
-        if self.creating_connection:
-            self.cancel_connection_creation()
+        if self.creating_net:
+            self.cancel_net_creation()
         
         if self.selected_node_id is not None:
             self.deselect_node()
         
-        if self.selected_connection_id is not None:
-            self.deselect_connection()
+        if self.selected_net_id is not None:
+            self.deselect_net()
         
         if self.editing_node_id is not None:
             self.cancel_label_edit()
@@ -1294,22 +1294,22 @@ class GraphData:
                     return True
             return False
         
-        # If we're creating a connection, handle it first
-        if self.creating_connection:
-            # Check if we clicked on a connector to complete the connection
+        # If we're creating a net, handle it first
+        if self.creating_net:
+            # Check if we clicked on a connector to complete the net
             clicked_connector = self.get_connector_at_position(x, y)
             if clicked_connector is not None:
                 node_id, connector_id = clicked_connector
-                return self.complete_connection_creation(node_id, connector_id)
+                return self.complete_net_creation(node_id, connector_id)
             else:
-                # Clicked on empty area - cancel connection creation
-                return self.cancel_connection_creation()
+                # Clicked on empty area - cancel net creation
+                return self.cancel_net_creation()
         
-        # Check if we clicked on a connector to start connection creation
+        # Check if we clicked on a connector to start net creation
         clicked_connector = self.get_connector_at_position(x, y)
         if clicked_connector is not None:
             node_id, connector_id = clicked_connector
-            return self.start_connection_creation(node_id, connector_id)
+            return self.start_net_creation(node_id, connector_id)
         
         clicked_node_id = self.get_node_at_position(x, y)
         
@@ -1317,7 +1317,7 @@ class GraphData:
         self.drag_start_pos = (x, y)
         self.pointer_state = PointerState.PRESSED
         self.click_selected_different_node = False
-        self.click_selected_different_connection = False
+        self.click_selected_different_net = False
         
         if clicked_node_id is not None:
             self.drag_node_id = clicked_node_id
@@ -1335,13 +1335,13 @@ class GraphData:
             self.drag_node_id = None
             self.drag_offset = (0.0, 0.0)
             
-            # Check for connection selection if no node was clicked
-            clicked_connection_id = self.get_connection_at_position(x, y)
-            if clicked_connection_id is not None:
-                # If clicking on an unselected connection, select it immediately
-                if clicked_connection_id != self.selected_connection_id:
-                    self.select_connection(clicked_connection_id)
-                    self.click_selected_different_connection = True
+            # Check for net selection if no node was clicked
+            clicked_net_id = self.get_net_at_position(x, y)
+            if clicked_net_id is not None:
+                # If clicking on an unselected net, select it immediately
+                if clicked_net_id != self.selected_net_id:
+                    self.select_net(clicked_net_id)
+                    self.click_selected_different_net = True
                     return True
         
         return False
@@ -1352,9 +1352,9 @@ class GraphData:
         if self.simulation_mode:
             return False
         
-        # If we're creating a connection, update the pending connection
-        if self.creating_connection:
-            return self.update_pending_connection(x, y)
+        # If we're creating a net, update the pending net
+        if self.creating_net:
+            return self.update_pending_net(x, y)
         
         if self.pointer_state == PointerState.IDLE:
             return False
@@ -1399,27 +1399,27 @@ class GraphData:
         # If we were only pressed (not dragging), handle as selection
         if self.pointer_state == PointerState.PRESSED:
             # This is a click without significant movement
-            if self.drag_node_id is None and not self.click_selected_different_connection:
-                # Check if we clicked on a connection that was already selected
-                clicked_connection_id = self.get_connection_at_position(x, y)
-                if clicked_connection_id is not None and clicked_connection_id == self.selected_connection_id:
-                    # Clicked on already selected connection - deselect it
-                    self.deselect_connection()
+            if self.drag_node_id is None and not self.click_selected_different_net:
+                # Check if we clicked on a net that was already selected
+                clicked_net_id = self.get_net_at_position(x, y)
+                if clicked_net_id is not None and clicked_net_id == self.selected_net_id:
+                    # Clicked on already selected net - deselect it
+                    self.deselect_net()
                     ui_needs_refresh = True
-                elif clicked_connection_id is None:
+                elif clicked_net_id is None:
                     # Clicked on empty area - deselect current selection
                     if self.selected_node_id is not None:
                         self.deselect_node()
                         ui_needs_refresh = True
-                    elif self.selected_connection_id is not None:
-                        self.deselect_connection()
+                    elif self.selected_net_id is not None:
+                        self.deselect_net()
                         ui_needs_refresh = True
             elif self.drag_node_id == self.selected_node_id and not self.click_selected_different_node:
                 # Clicked on already selected node - deselect it
                 # Only deselect if we didn't just select it (i.e., it was already selected)
                 self.deselect_node()
                 ui_needs_refresh = True
-            # If we clicked on a different node or connection, it was already selected in handle_pointer_down
+            # If we clicked on a different node or net, it was already selected in handle_pointer_down
         
         # Reset drag state
         self.pointer_state = PointerState.IDLE
@@ -1427,7 +1427,7 @@ class GraphData:
         self.drag_node_id = None
         self.drag_offset = (0.0, 0.0)
         self.click_selected_different_node = False
-        self.click_selected_different_connection = False
+        self.click_selected_different_net = False
         
         # Return True if we were dragging or if selection changed
         return was_dragging or ui_needs_refresh
@@ -1518,7 +1518,7 @@ class GraphData:
         """Handle mouse click at given coordinates. Returns True if selection changed."""
         clicked_node_id = self.get_node_at_position(x, y)
         previous_node_selection = self.selected_node_id
-        previous_connection_selection = self.selected_connection_id
+        previous_net_selection = self.selected_net_id
         
         if clicked_node_id is not None:
             # Clicked on a node
@@ -1529,26 +1529,26 @@ class GraphData:
                 # Clicked on a different node - select it
                 self.select_node(clicked_node_id)
         else:
-            # No node clicked, check for connection
-            clicked_connection_id = self.get_connection_at_position(x, y)
-            if clicked_connection_id is not None:
-                # Clicked on a connection
-                if clicked_connection_id == self.selected_connection_id:
-                    # Clicked on already selected connection - deselect it
-                    self.deselect_connection()
+            # No node clicked, check for net
+            clicked_net_id = self.get_net_at_position(x, y)
+            if clicked_net_id is not None:
+                # Clicked on a net
+                if clicked_net_id == self.selected_net_id:
+                    # Clicked on already selected net - deselect it
+                    self.deselect_net()
                 else:
-                    # Clicked on a different connection - select it
-                    self.select_connection(clicked_connection_id)
+                    # Clicked on a different net - select it
+                    self.select_net(clicked_net_id)
             else:
                 # Clicked on empty area - deselect current selection
                 if self.selected_node_id is not None:
                     self.deselect_node()
-                elif self.selected_connection_id is not None:
-                    self.deselect_connection()
+                elif self.selected_net_id is not None:
+                    self.deselect_net()
         
         # Return True if selection state changed
         return (previous_node_selection != self.selected_node_id or 
-                previous_connection_selection != self.selected_connection_id)
+                previous_net_selection != self.selected_net_id)
     
     def to_slint_format(self) -> Dict[str, Any]:
         """Convert graph data to format suitable for Slint"""
@@ -1582,46 +1582,46 @@ class GraphData:
             }
             slint_nodes.append(slint_node)
         
-        # Convert connections with calculated positions and values
-        slint_connections = []
-        for conn in self.connections.values():
-            start_x, start_y = self.get_connector_absolute_position(conn.from_node_id, conn.from_connector_id)
-            end_x, end_y = self.get_connector_absolute_position(conn.to_node_id, conn.to_connector_id)
+        # Convert nets with calculated positions and values
+        slint_nets = []
+        for net in self.nets.values():
+            start_x, start_y = self.get_connector_absolute_position(net.from_node_id, net.from_connector_id)
+            end_x, end_y = self.get_connector_absolute_position(net.to_node_id, net.to_connector_id)
             
-            # Get connection value for simulation mode visualization
-            connection_value, has_connection_value = self._get_connection_value(conn)
+            # Get net value for simulation mode visualization
+            net_value, has_net_value = self._get_net_value(net)
             
-            slint_connection = {
-                "id": conn.id,
+            slint_net = {
+                "id": net.id,
                 "start_x": start_x,
                 "start_y": start_y,
                 "end_x": end_x,
                 "end_y": end_y,
-                "value": connection_value,
-                "has_value": has_connection_value,
+                "value": net_value,
+                "has_value": has_net_value,
                 "simulation_mode": self.simulation_mode
             }
-            slint_connections.append(slint_connection)
+            slint_nets.append(slint_net)
         
-        # Get pending connection start position if creating connection
+        # Get pending net start position if creating net
         pending_start_x = 0.0
         pending_start_y = 0.0
-        if self.creating_connection and self.connection_start_node_id and self.connection_start_connector_id:
+        if self.creating_net and self.net_start_node_id and self.net_start_connector_id:
             pending_start_x, pending_start_y = self.get_connector_absolute_position(
-                self.connection_start_node_id, self.connection_start_connector_id)
+                self.net_start_node_id, self.net_start_connector_id)
         
         return {
             "nodes": slint_nodes,
-            "connections": slint_connections,
+            "nets": slint_nets,
             "selected_nodes": [self.selected_node_id] if self.selected_node_id else [],
-            "selected_connections": [self.selected_connection_id] if self.selected_connection_id else [],
+            "selected_nets": [self.selected_net_id] if self.selected_net_id else [],
             "editing_node_id": self.editing_node_id or "",
             "editing_text": self.editing_text,
-            "creating_connection": self.creating_connection,
+            "creating_net": self.creating_net,
             "pending_start_x": pending_start_x,
             "pending_start_y": pending_start_y,
-            "pending_end_x": self.pending_connection_end_x,
-            "pending_end_y": self.pending_connection_end_y,
+            "pending_end_x": self.pending_net_end_x,
+            "pending_end_y": self.pending_net_end_y,
             "toolbox_items": self.get_toolbox_data(),
             "toolbox_creation_mode": self.toolbox_creation_mode,
             "simulation_mode": self.simulation_mode
@@ -1656,19 +1656,19 @@ def create_demo_graph() -> GraphData:
     graph.add_node(output_node_a)
     graph.add_node(output_node_b)
     
-    # Add connections
-    connections = [
-        Connection("c1", "input_a", "out", "and_gate", "in1"),
-        Connection("c2", "input_b", "out", "and_gate", "in2"),
-        Connection("c3", "input_b", "out", "or_gate", "in1"),
-        Connection("c4", "input_c", "out", "or_gate", "in2"),
-        Connection("c5", "and_gate", "out", "not_gate", "in"),
-        Connection("c6", "not_gate", "out", "output_a", "in"),
-        Connection("c7", "or_gate", "out", "output_b", "in")
+    # Add nets
+    nets = [
+        Net("c1", "input_a", "out", "and_gate", "in1"),
+        Net("c2", "input_b", "out", "and_gate", "in2"),
+        Net("c3", "input_b", "out", "or_gate", "in1"),
+        Net("c4", "input_c", "out", "or_gate", "in2"),
+        Net("c5", "and_gate", "out", "not_gate", "in"),
+        Net("c6", "not_gate", "out", "output_a", "in"),
+        Net("c7", "or_gate", "out", "output_b", "in")
     ]
     
-    for conn in connections:
-        graph.add_connection(conn)
+    for net in nets:
+        graph.add_net(net)
     
     return graph
 
@@ -1697,22 +1697,22 @@ def create_sr_nor_latch_demo() -> GraphData:
     graph.add_node(output_q)
     graph.add_node(output_q_not)
     
-    # Add connections for SR NOR latch
-    # The feedback connections create the latch behavior:
+    # Add nets for SR NOR latch
+    # The feedback nets create the latch behavior:
     # - R input goes to NOR1 input 1 (NOR1 produces Q)
     # - S input goes to NOR2 input 1 (NOR2 produces Q̅)
     # - NOR1 output (Q) feeds back to NOR2 input 2
     # - NOR2 output (Q̅) feeds back to NOR1 input 2
-    connections = [
-        Connection("c1", "reset", "out", "nor1", "in1"),    # R -> NOR1 (Q gate)
-        Connection("c2", "set", "out", "nor2", "in1"),      # S -> NOR2 (Q̅ gate)
-        Connection("c3", "nor1", "out", "nor2", "in2"),     # Q -> NOR2 (feedback)
-        Connection("c4", "nor2", "out", "nor1", "in2"),     # Q̅ -> NOR1 (feedback)
-        Connection("c5", "nor1", "out", "q", "in"),         # Q output
-        Connection("c6", "nor2", "out", "q_not", "in")      # Q̅ output
+    nets = [
+        Net("c1", "reset", "out", "nor1", "in1"),    # R -> NOR1 (Q gate)
+        Net("c2", "set", "out", "nor2", "in1"),      # S -> NOR2 (Q̅ gate)
+        Net("c3", "nor1", "out", "nor2", "in2"),     # Q -> NOR2 (feedback)
+        Net("c4", "nor2", "out", "nor1", "in2"),     # Q̅ -> NOR1 (feedback)
+        Net("c5", "nor1", "out", "q", "in"),         # Q output
+        Net("c6", "nor2", "out", "q_not", "in")      # Q̅ output
     ]
     
-    for conn in connections:
-        graph.add_connection(conn)
+    for net in nets:
+        graph.add_net(net)
     
     return graph

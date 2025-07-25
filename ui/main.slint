@@ -1,5 +1,5 @@
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { GraphView, NodeData, ConnectionData } from "graph.slint";
+import { GraphView, NodeData, NetData } from "graph.slint";
 import { ToolboxView, NodeTypeData } from "toolbox.slint";
 
 export component MainWindow inherits Window {
@@ -9,12 +9,12 @@ export component MainWindow inherits Window {
     
     // Expose graph data properties with default values
     in property <[NodeData]> nodes: [];
-    in property <[ConnectionData]> connections: [];
+    in property <[NetData]> nets: [];
     in property <[string]> selected-nodes: [];
-    in property <[string]> selected-connections: [];
+    in property <[string]> selected-nets: [];
     in property <string> editing-node-id: "";
     in property <string> editing-text: "";
-    in property <bool> creating-connection: false;
+    in property <bool> creating-net: false;
     in property <length> pending-start-x;
     in property <length> pending-start-y;
     in property <length> pending-end-x;
@@ -69,12 +69,12 @@ export component MainWindow inherits Window {
             // Main graph view (reduced width to accommodate toolbox)
             GraphView {
                 nodes: root.nodes;
-                connections: root.connections;
+                nets: root.nets;
                 selected-nodes: root.selected-nodes;
-                selected-connections: root.selected-connections;
+                selected-nets: root.selected-nets;
                 editing-node-id: root.editing-node-id;
                 editing-text: root.editing-text;
-                creating-connection: root.creating-connection;
+                creating-net: root.creating-net;
                 pending-start-x: root.pending-start-x;
                 pending-start-y: root.pending-start-y;
                 pending-end-x: root.pending-end-x;

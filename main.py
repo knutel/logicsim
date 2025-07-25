@@ -53,7 +53,7 @@ def main():
             return
             
         graph_data = graph.to_slint_format()
-        logger.debug(f"Refreshing UI - Selected nodes: {graph_data['selected_nodes']}, Selected connections: {graph_data['selected_connections']}")
+        logger.debug(f"Refreshing UI - Selected nodes: {graph_data['selected_nodes']}, Selected nets: {graph_data['selected_nets']}")
         
         # Convert nodes to Slint format
         slint_nodes = []
@@ -83,29 +83,29 @@ def main():
             }
             slint_nodes.append(slint_node)
         
-        # Convert connections to Slint format
-        slint_connections = []
-        for conn in graph_data['connections']:
-            slint_conn = {
-                "id": str(conn['id']),
-                "start_x": float(conn['start_x']),
-                "start_y": float(conn['start_y']),
-                "end_x": float(conn['end_x']),
-                "end_y": float(conn['end_y']),
-                "value": bool(conn['value']),
-                "has_value": bool(conn['has_value']),
-                "simulation_mode": bool(conn['simulation_mode'])
+        # Convert nets to Slint format
+        slint_nets = []
+        for net in graph_data['nets']:
+            slint_net = {
+                "id": str(net['id']),
+                "start_x": float(net['start_x']),
+                "start_y": float(net['start_y']),
+                "end_x": float(net['end_x']),
+                "end_y": float(net['end_y']),
+                "value": bool(net['value']),
+                "has_value": bool(net['has_value']),
+                "simulation_mode": bool(net['simulation_mode'])
             }
-            slint_connections.append(slint_conn)
+            slint_nets.append(slint_net)
         
         # Update UI properties
         main_window.nodes = slint.ListModel(slint_nodes)
-        main_window.connections = slint.ListModel(slint_connections)
+        main_window.nets = slint.ListModel(slint_nets)
         main_window.selected_nodes = slint.ListModel([str(node_id) for node_id in graph_data['selected_nodes']])
-        main_window.selected_connections = slint.ListModel([str(conn_id) for conn_id in graph_data['selected_connections']])
+        main_window.selected_nets = slint.ListModel([str(net_id) for net_id in graph_data['selected_nets']])
         main_window.editing_node_id = graph_data['editing_node_id']
         main_window.editing_text = graph_data['editing_text']
-        main_window.creating_connection = graph_data['creating_connection']
+        main_window.creating_net = graph_data['creating_net']
         main_window.pending_start_x = graph_data['pending_start_x']
         main_window.pending_start_y = graph_data['pending_start_y']
         main_window.pending_end_x = graph_data['pending_end_x']
@@ -163,7 +163,7 @@ def main():
             if graph.toolbox_creation_mode:
                 logger.debug(f"Refreshing UI - Toolbox creation mode, selected type: {graph.selected_node_type}")
             else:
-                logger.debug(f"Refreshing UI - Selected node: {graph.get_selected_node()}")
+                logger.debug(f"Refreshing UI - Selected node: {graph.get_selected_node()}, Selected net: {graph.get_selected_net()}")
             refresh_ui_data()
         else:
             logger.debug("UI refresh not needed")
@@ -286,16 +286,16 @@ def main():
         main_window.enter_simulation_clicked = handle_enter_simulation_clicked
         main_window.enter_edit_clicked = handle_enter_edit_clicked
         
-        logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
+        logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['nets'])} nets")
         
         # Set graph data properties in Slint
         logger.debug("Graph nodes:")
         for node in graph_data['nodes']:
             logger.debug(f"  {node['id']}: {node['node_type']} at ({node['x']}, {node['y']})")
         
-        logger.debug("Graph connections:")
-        for conn in graph_data['connections']:
-            logger.debug(f"  {conn['id']}: ({conn['start_x']}, {conn['start_y']}) -> ({conn['end_x']}, {conn['end_y']})")
+        logger.debug("Graph nets:")
+        for net in graph_data['nets']:
+            logger.debug(f"  {net['id']}: ({net['start_x']}, {net['start_y']}) -> ({net['end_x']}, {net['end_y']})")
         
         # Use the refresh function to set initial data
         refresh_ui_data()
