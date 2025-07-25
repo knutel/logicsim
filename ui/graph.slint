@@ -25,8 +25,21 @@ export component ConnectionLine {
     in property <length> end-x;
     in property <length> end-y;
     in property <bool> is-selected: false;
-    in property <color> line-color: is-selected ? #0066cc : #000000;
-    in property <length> line-width: is-selected ? 4px : 2px;
+    in property <bool> value: false;
+    in property <bool> has-value: false;
+    in property <bool> simulation-mode: false;
+    
+    // Color logic: selection takes priority, then simulation mode value colors
+    in property <color> line-color: is-selected ? #0066cc :                    // Blue for selected
+                                   simulation-mode && has-value && value ? rgb(0, 200, 0) :      // Green for true
+                                   simulation-mode && has-value && !value ? rgb(200, 0, 0) :     // Red for false
+                                   simulation-mode && !has-value ? #888888 :                     // Gray for no value
+                                   #000000;                                                       // Black for edit mode
+    
+    // Width logic: thicker in simulation mode for better visibility
+    in property <length> line-width: is-selected ? 5px :                      // Thickest for selected
+                                    simulation-mode ? 4px :                    // Thick for simulation
+                                    2px;                                       // Normal for edit mode
     
     x: 0;
     y: 0;
@@ -122,6 +135,9 @@ export struct ConnectionData {
     start_y: length,
     end_x: length,
     end_y: length,
+    value: bool,           // Logical value carried by this connection
+    has_value: bool,       // Whether the connection carries a valid value
+    simulation_mode: bool, // Whether we're in simulation mode
 }
 
 // Main graph view component
@@ -241,6 +257,9 @@ export component GraphView {
                 end-x: connection.end_x;
                 end-y: connection.end_y;
                 is-selected: selected-connections.length > 0 && selected-connections[0] == connection.id;
+                value: connection.value;
+                has-value: connection.has_value;
+                simulation-mode: connection.simulation_mode;
             }
             
             // Pending connection rendering (dotted line)

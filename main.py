@@ -91,7 +91,10 @@ def main():
                 "start_x": float(conn['start_x']),
                 "start_y": float(conn['start_y']),
                 "end_x": float(conn['end_x']),
-                "end_y": float(conn['end_y'])
+                "end_y": float(conn['end_y']),
+                "value": bool(conn['value']),
+                "has_value": bool(conn['has_value']),
+                "simulation_mode": bool(conn['simulation_mode'])
             }
             slint_connections.append(slint_conn)
         

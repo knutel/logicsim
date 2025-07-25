@@ -3795,3 +3795,423 @@ class TestFeedbackLoops:
         
         # Should use single-pass combinational simulation
         assert graph.get_node_value("output1") == False  # NOT True = False
+
+
+class TestConnectionValueVisualization:
+    """Test cases for connection-based value visualization system"""
+    
+    def setup_method(self):
+        """Set up test circuit for each test"""
+        self.graph = GraphData()
+        
+        # Create a simple circuit: Input -> NOT -> Output
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50)
+        not_node = Node.create("not1", NODE_REGISTRY.get_definition("not"), 150, 50)
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 250, 50)
+        
+        self.graph.add_node(input_node)
+        self.graph.add_node(not_node)
+        self.graph.add_node(output_node)
+        
+        # Add connections
+        conn1 = Connection("c1", "input1", "out", "not1", "in")
+        conn2 = Connection("c2", "not1", "out", "output1", "in")
+        self.graph.add_connection(conn1)
+        self.graph.add_connection(conn2)
+    
+    def test_get_connection_value_input_node(self):
+        """Test _get_connection_value for input node connections"""
+        # Set input value
+        self.graph.nodes["input1"].value = True
+        
+        # Test connection from input node
+        connection = self.graph.connections["c1"]
+        value, has_value = self.graph._get_connection_value(connection)
+        
+        assert value == True
+        assert has_value == True
+    
+    def test_get_connection_value_input_node_no_value(self):
+        """Test _get_connection_value for input node with no value"""
+        # Input node has no value set
+        assert self.graph.nodes["input1"].value is None
+        
+        connection = self.graph.connections["c1"]
+        value, has_value = self.graph._get_connection_value(connection)
+        
+        assert value == False
+        assert has_value == False
+    
+    def test_get_connection_value_logic_gate(self):
+        """Test _get_connection_value for logic gate connections"""
+        # Set computed value on NOT gate
+        self.graph.nodes["not1"].value = False
+        
+        # Test connection from NOT gate
+        connection = self.graph.connections["c2"]
+        value, has_value = self.graph._get_connection_value(connection)
+        
+        assert value == False
+        assert has_value == True
+    
+    def test_get_connection_value_logic_gate_no_value(self):
+        """Test _get_connection_value for logic gate with no computed value"""
+        # NOT gate has no computed value
+        assert self.graph.nodes["not1"].value is None
+        
+        connection = self.graph.connections["c2"]
+        value, has_value = self.graph._get_connection_value(connection)
+        
+        assert value == False
+        assert has_value == False
+    
+    def test_get_connection_value_output_node(self):
+        """Test _get_connection_value for output node connections (though they have no outputs)"""
+        # Set value on output node
+        self.graph.nodes["output1"].value = True
+        
+        # Create a hypothetical connection from output node for testing
+        test_conn = Connection("test", "output1", "out", "not1", "in")
+        value, has_value = self.graph._get_connection_value(test_conn)
+        
+        assert value == True
+        assert has_value == True
+    
+    def test_get_connection_value_nonexistent_node(self):
+        """Test _get_connection_value for connection with nonexistent source node"""
+        # Create connection with invalid source node
+        invalid_conn = Connection("invalid", "nonexistent", "out", "not1", "in")
+        value, has_value = self.graph._get_connection_value(invalid_conn)
+        
+        assert value == False
+        assert has_value == False
+    
+    def test_get_connection_value_unknown_node_type(self):
+        """Test _get_connection_value for unknown node type"""
+        # Create a node with unknown type
+        unknown_node = Node("unknown1", "unknown_type", 100, 100, 80, 60, "Unknown", "gray", [], None)
+        self.graph.add_node(unknown_node)
+        
+        # Create connection from unknown node
+        unknown_conn = Connection("unknown_c", "unknown1", "out", "not1", "in")
+        value, has_value = self.graph._get_connection_value(unknown_conn)
+        
+        assert value == False
+        assert has_value == False
+    
+    def test_get_connection_value_all_logic_gate_types(self):
+        """Test _get_connection_value for all logic gate types"""
+        # Test AND gate
+        and_node = Node.create("and1", NODE_REGISTRY.get_definition("and"), 300, 50)
+        and_node.value = True
+        self.graph.add_node(and_node)
+        and_conn = Connection("and_c", "and1", "out", "output1", "in")
+        value, has_value = self.graph._get_connection_value(and_conn)
+        assert value == True and has_value == True
+        
+        # Test OR gate
+        or_node = Node.create("or1", NODE_REGISTRY.get_definition("or"), 300, 100)
+        or_node.value = False
+        self.graph.add_node(or_node)
+        or_conn = Connection("or_c", "or1", "out", "output1", "in")
+        value, has_value = self.graph._get_connection_value(or_conn)
+        assert value == False and has_value == True
+        
+        # Test NOR gate
+        nor_node = Node.create("nor1", NODE_REGISTRY.get_definition("nor"), 300, 150)
+        nor_node.value = True
+        self.graph.add_node(nor_node)
+        nor_conn = Connection("nor_c", "nor1", "out", "output1", "in")
+        value, has_value = self.graph._get_connection_value(nor_conn)
+        assert value == True and has_value == True
+    
+    def test_to_slint_format_includes_connection_values_edit_mode(self):
+        """Test that to_slint_format includes connection values in edit mode"""
+        # In edit mode, simulation_mode should be False
+        graph_data = self.graph.to_slint_format()
+        
+        assert "connections" in graph_data
+        assert len(graph_data["connections"]) == 2
+        
+        for conn in graph_data["connections"]:
+            assert "value" in conn
+            assert "has_value" in conn
+            assert "simulation_mode" in conn
+            
+            # In edit mode, simulation_mode should be False
+            assert conn["simulation_mode"] == False
+            # Connections should have no values in edit mode
+            assert conn["has_value"] == False
+    
+    def test_to_slint_format_includes_connection_values_simulation_mode(self):
+        """Test that to_slint_format includes connection values in simulation mode"""
+        # Enter simulation mode and run simulation
+        self.graph.enter_simulation_mode()
+        self.graph.set_input_value("input1", True)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        
+        assert "connections" in graph_data
+        assert len(graph_data["connections"]) == 2
+        
+        for conn in graph_data["connections"]:
+            assert "value" in conn
+            assert "has_value" in conn
+            assert "simulation_mode" in conn
+            
+            # In simulation mode, simulation_mode should be True
+            assert conn["simulation_mode"] == True
+            # Connections should have values in simulation mode
+            assert conn["has_value"] == True
+        
+        # Check specific connection values
+        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        
+        # c1: input1(True) -> not1, so value should be True
+        assert c1_conn["value"] == True
+        # c2: not1(False) -> output1, so value should be False (NOT True = False)
+        assert c2_conn["value"] == False
+    
+    def test_to_slint_format_includes_node_has_value_field(self):
+        """Test that to_slint_format includes has_value field for nodes"""
+        # Test in edit mode
+        graph_data = self.graph.to_slint_format()
+        
+        for node in graph_data["nodes"]:
+            assert "has_value" in node
+            # In edit mode, nodes should not have values
+            assert node["has_value"] == False
+        
+        # Test in simulation mode
+        self.graph.enter_simulation_mode()
+        self.graph.set_input_value("input1", True)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        
+        for node in graph_data["nodes"]:
+            assert "has_value" in node
+            # In simulation mode, all nodes should have values
+            assert node["has_value"] == True
+    
+    def test_to_slint_format_connection_values_with_different_input_states(self):
+        """Test connection values with different input states"""
+        self.graph.enter_simulation_mode()
+        
+        # Test with input = False
+        self.graph.set_input_value("input1", False)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        
+        # c1: input1(False) -> not1, so value should be False
+        assert c1_conn["value"] == False
+        # c2: not1(True) -> output1, so value should be True (NOT False = True)
+        assert c2_conn["value"] == True
+        
+        # Test with input = True
+        self.graph.set_input_value("input1", True)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        c1_conn = next(c for c in graph_data["connections"] if c["id"] == "c1")
+        c2_conn = next(c for c in graph_data["connections"] if c["id"] == "c2")
+        
+        # c1: input1(True) -> not1, so value should be True
+        assert c1_conn["value"] == True
+        # c2: not1(False) -> output1, so value should be False (NOT True = False)
+        assert c2_conn["value"] == False
+    
+    def test_visual_behavior_edit_mode(self):
+        """Test visual behavior expectations in edit mode"""
+        graph_data = self.graph.to_slint_format()
+        
+        # All connections should have simulation_mode = False
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == False
+            assert conn["has_value"] == False
+            # This will result in black lines (2px) in the UI
+        
+        # Nodes should not have simulation values
+        for node in graph_data["nodes"]:
+            assert node["has_value"] == False
+            # Input/output nodes will show default colors, logic gates will show gray
+    
+    def test_visual_behavior_simulation_mode(self):
+        """Test visual behavior expectations in simulation mode"""
+        self.graph.enter_simulation_mode()
+        self.graph.set_input_value("input1", True)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        
+        # All connections should have simulation_mode = True
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == True
+            assert conn["has_value"] == True
+            # This will result in colored lines (4px) in the UI
+        
+        # Nodes should have simulation values
+        for node in graph_data["nodes"]:
+            assert node["has_value"] == True
+            # Input/output nodes will show green/red, logic gates will show gray
+    
+    def test_different_node_types_connection_values(self):
+        """Test connection values for different node types"""
+        # Create a more complex circuit with different node types
+        graph = GraphData()
+        
+        # Input nodes
+        input_a = Node.create("input_a", NODE_REGISTRY.get_definition("input"), 50, 50)
+        input_b = Node.create("input_b", NODE_REGISTRY.get_definition("input"), 50, 100)
+        
+        # Logic gates
+        and_gate = Node.create("and1", NODE_REGISTRY.get_definition("and"), 150, 75)
+        or_gate = Node.create("or1", NODE_REGISTRY.get_definition("or"), 250, 75)
+        not_gate = Node.create("not1", NODE_REGISTRY.get_definition("not"), 350, 75)
+        nor_gate = Node.create("nor1", NODE_REGISTRY.get_definition("nor"), 450, 75)
+        
+        # Output node
+        output = Node.create("output1", NODE_REGISTRY.get_definition("output"), 550, 75)
+        
+        # Add all nodes
+        for node in [input_a, input_b, and_gate, or_gate, not_gate, nor_gate, output]:
+            graph.add_node(node)
+        
+        # Add connections
+        connections = [
+            Connection("c1", "input_a", "out", "and1", "in1"),
+            Connection("c2", "input_b", "out", "and1", "in2"),
+            Connection("c3", "and1", "out", "or1", "in1"),
+            Connection("c4", "input_a", "out", "or1", "in2"),
+            Connection("c5", "or1", "out", "not1", "in"),
+            Connection("c6", "not1", "out", "nor1", "in1"),
+            Connection("c7", "input_b", "out", "nor1", "in2"),
+            Connection("c8", "nor1", "out", "output1", "in")
+        ]
+        
+        for conn in connections:
+            graph.add_connection(conn)
+        
+        # Test in simulation mode
+        graph.enter_simulation_mode()
+        graph.set_input_value("input_a", True)
+        graph.set_input_value("input_b", False)
+        graph.simulate()
+        
+        graph_data = graph.to_slint_format()
+        
+        # Verify all connections have values
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == True
+            assert conn["has_value"] == True
+            assert isinstance(conn["value"], bool)
+        
+        # Verify specific connection values based on logic
+        connections_by_id = {c["id"]: c for c in graph_data["connections"]}
+        
+        # c1: input_a(True) -> and1
+        assert connections_by_id["c1"]["value"] == True
+        # c2: input_b(False) -> and1
+        assert connections_by_id["c2"]["value"] == False
+        # c3: and1(True AND False = False) -> or1
+        assert connections_by_id["c3"]["value"] == False
+        # c4: input_a(True) -> or1
+        assert connections_by_id["c4"]["value"] == True
+        # c5: or1(False OR True = True) -> not1
+        assert connections_by_id["c5"]["value"] == True
+        # c6: not1(NOT True = False) -> nor1
+        assert connections_by_id["c6"]["value"] == False
+        # c7: input_b(False) -> nor1
+        assert connections_by_id["c7"]["value"] == False
+        # c8: nor1(False NOR False = True) -> output1
+        assert connections_by_id["c8"]["value"] == True
+    
+    def test_edge_case_no_simulation_run(self):
+        """Test edge case where simulation mode is entered but simulation not run"""
+        self.graph.enter_simulation_mode()
+        # Don't run simulation
+        
+        graph_data = self.graph.to_slint_format()
+        
+        # Should be in simulation mode but connections may not have values
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == True
+            # Connections may or may not have values depending on node state
+    
+    def test_edge_case_partial_simulation_values(self):
+        """Test edge case where only some nodes have simulation values"""
+        # Set some node values manually without full simulation
+        self.graph.enter_simulation_mode()
+        self.graph.nodes["input1"].value = True
+        # Don't set other node values
+        
+        graph_data = self.graph.to_slint_format()
+        
+        # Should handle mixed value states gracefully
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == True
+            assert "value" in conn
+            assert "has_value" in conn
+            assert isinstance(conn["value"], bool)
+            assert isinstance(conn["has_value"], bool)
+    
+    def test_edge_case_mode_transitions(self):
+        """Test edge case of transitioning between edit and simulation modes"""
+        # Start in edit mode
+        graph_data = self.graph.to_slint_format()
+        assert all(not conn["simulation_mode"] for conn in graph_data["connections"])
+        
+        # Enter simulation mode
+        self.graph.enter_simulation_mode()
+        self.graph.set_input_value("input1", True)
+        self.graph.simulate()
+        
+        graph_data = self.graph.to_slint_format()
+        assert all(conn["simulation_mode"] for conn in graph_data["connections"])
+        assert all(conn["has_value"] for conn in graph_data["connections"])
+        
+        # Exit simulation mode (back to edit)
+        self.graph.enter_edit_mode()
+        
+        graph_data = self.graph.to_slint_format()
+        assert all(not conn["simulation_mode"] for conn in graph_data["connections"])
+        assert all(not conn["has_value"] for conn in graph_data["connections"])
+    
+    def test_sr_nor_latch_connection_values(self):
+        """Test connection values in SR NOR latch (feedback circuit)"""
+        from logicsim.graph_data import create_sr_nor_latch_demo
+        
+        latch_graph = create_sr_nor_latch_demo()
+        latch_graph.enter_simulation_mode()
+        
+        # Test SET operation
+        latch_graph.set_input_value("set", True)
+        latch_graph.set_input_value("reset", False)
+        latch_graph.simulate()
+        
+        graph_data = latch_graph.to_slint_format()
+        
+        # All connections should have values in simulation mode
+        for conn in graph_data["connections"]:
+            assert conn["simulation_mode"] == True
+            assert conn["has_value"] == True
+            assert isinstance(conn["value"], bool)
+        
+        # Verify feedback loop connections have proper values
+        connections_by_id = {c["id"]: c for c in graph_data["connections"]}
+        
+        # Should have feedback connections c3 and c4
+        assert "c3" in connections_by_id  # nor1 -> nor2 (Q -> NOR2)
+        assert "c4" in connections_by_id  # nor2 -> nor1 (Q̅ -> NOR1)
+        
+        # In SET state, Q=1, Q̅=0
+        q_feedback = connections_by_id["c3"]["value"]    # Q feedback
+        q_not_feedback = connections_by_id["c4"]["value"] # Q̅ feedback
+        
+        # These should be opposite values
+        assert q_feedback != q_not_feedback

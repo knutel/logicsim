@@ -627,6 +627,44 @@ class GraphData:
         
         return available_inputs >= expected_inputs
     
+    def _get_connection_value(self, connection: Connection) -> tuple[bool, bool]:
+        """
+        Get the logical value carried by a connection.
+        
+        Args:
+            connection: The connection to evaluate
+            
+        Returns:
+            tuple[bool, bool]: (value, has_value) where:
+                - value: the logical value (True/False) 
+                - has_value: whether the connection carries a valid value
+        """
+        # Get the source node
+        source_node = self.nodes.get(connection.from_node_id)
+        if source_node is None:
+            return False, False
+        
+        # For input and output nodes, use the node's value directly
+        if source_node.node_type in ["input", "output"]:
+            if source_node.value is not None:
+                return source_node.value, True
+            else:
+                return False, False
+        
+        # For logic gates (AND, OR, NOT, NOR), use the node's computed output value
+        # All current logic gates have a single output, so we can use the node's value
+        if source_node.node_type in ["and", "or", "not", "nor"]:
+            if source_node.value is not None:
+                return source_node.value, True
+            else:
+                return False, False
+        
+        # For future multi-output nodes, we would need to:
+        # 1. Determine which output connector this connection comes from
+        # 2. Get the value for that specific output connector
+        # For now, return no value for unknown node types
+        return False, False
+    
     def reset_simulation(self) -> bool:
         """
         Reset the simulation by clearing all node values.
@@ -1539,22 +1577,29 @@ class GraphData:
                 "label": node.label,
                 "color": node.color,
                 "connectors": connectors_data,
-                "value": node.value
+                "value": node.value,
+                "has_value": node.value is not None
             }
             slint_nodes.append(slint_node)
         
-        # Convert connections with calculated positions
+        # Convert connections with calculated positions and values
         slint_connections = []
         for conn in self.connections.values():
             start_x, start_y = self.get_connector_absolute_position(conn.from_node_id, conn.from_connector_id)
             end_x, end_y = self.get_connector_absolute_position(conn.to_node_id, conn.to_connector_id)
+            
+            # Get connection value for simulation mode visualization
+            connection_value, has_connection_value = self._get_connection_value(conn)
             
             slint_connection = {
                 "id": conn.id,
                 "start_x": start_x,
                 "start_y": start_y,
                 "end_x": end_x,
-                "end_y": end_y
+                "end_y": end_y,
+                "value": connection_value,
+                "has_value": has_connection_value,
+                "simulation_mode": self.simulation_mode
             }
             slint_connections.append(slint_connection)
         
