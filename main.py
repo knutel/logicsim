@@ -97,9 +97,21 @@ def main():
                 }
                 slint_segments.append(slint_segment)
             
+            # Convert waypoints to Slint format
+            slint_waypoints = []
+            for waypoint in net['waypoints']:
+                slint_waypoint = {
+                    "id": str(waypoint['id']),
+                    "x": float(waypoint['x']),
+                    "y": float(waypoint['y']),
+                    "is_selected": bool(waypoint['is_selected'])
+                }
+                slint_waypoints.append(slint_waypoint)
+            
             slint_net = {
                 "id": str(net['id']),
                 "segments": slint.ListModel(slint_segments),
+                "waypoints": slint.ListModel(slint_waypoints),
                 "value": bool(net['value']),
                 "has_value": bool(net['has_value']),
                 "simulation_mode": bool(net['simulation_mode'])

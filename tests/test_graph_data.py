@@ -15,6 +15,7 @@ from logicsim.graph_data import (
     Node,
     Net,
     NetConnector,
+    NetWaypoint,
     GraphData,
     PointerState,
     create_demo_graph

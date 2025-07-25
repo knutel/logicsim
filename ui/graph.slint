@@ -1,6 +1,44 @@
 // Graph visualization component for LogicSim
 import { VerticalBox, LineEdit, ScrollView } from "std-widgets.slint";
 
+// Data structure definitions
+export struct ConnectorData {
+    id: string,
+    x: length,
+    y: length,
+    is_input: bool,
+}
+
+export struct WaypointData {
+    id: string,
+    x: length,
+    y: length,
+    is_selected: bool,
+}
+
+export struct NodeData {
+    id: string,
+    node_type: string,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+    label: string,
+    color: string,
+    connectors: [ConnectorData],
+    value: bool,        // Simulation state value (true/false)
+    has_value: bool,    // Whether the node has a simulation value set
+}
+
+export struct NetData {
+    id: string,
+    segments: [{start_x: length, start_y: length, end_x: length, end_y: length}], // List of line segments that make up this net
+    waypoints: [WaypointData], // List of waypoints on this net
+    value: bool,           // Logical value carried by this net
+    has_value: bool,       // Whether the net carries a valid value
+    simulation_mode: bool, // Whether we're in simulation mode
+}
+
 // Individual connector component (black dot)
 export component Connector {
     in property <length> size: 8px;
@@ -17,10 +55,29 @@ export component Connector {
     }
 }
 
+// Waypoint component (black dot, similar to connector but draggable)
+export component Waypoint {
+    in property <length> size: 8px;
+    in property <bool> is-selected: false;
+    
+    width: size;
+    height: size;
+    
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: is-selected ? #0066cc : #000000;  // Blue when selected, black otherwise
+        border-color: is-selected ? #ffffff : #666666;  // White border when selected
+        border-width: is-selected ? 2px : 1px;
+        border-radius: size / 2;
+    }
+}
+
 
 // Net line component using Path with multiple segments
 export component NetLine {
     in property <[{start_x: length, start_y: length, end_x: length, end_y: length}]> segments;
+    in property <[WaypointData]> waypoints;
     in property <bool> is-selected: false;
     in property <bool> value: false;
     in property <bool> has-value: false;
@@ -64,6 +121,13 @@ export component NetLine {
             y: segment.end_y / 1px;
         }
     }
+    
+    // Render waypoints on top of line segments
+    for waypoint in waypoints: Waypoint {
+        x: waypoint.x;
+        y: waypoint.y;
+        is-selected: waypoint.is_selected;
+    }
 }
 
 // Pending net line component (gray dashed appearance)
@@ -101,38 +165,6 @@ export component PendingNetLine {
             y: end-y / 1px;
         }
     }
-}
-
-// Connector data structure
-export struct ConnectorData {
-    id: string,
-    x: length,
-    y: length,
-    is_input: bool,
-}
-
-// Node data structure
-export struct NodeData {
-    id: string,
-    node_type: string,
-    x: length,
-    y: length,
-    width: length,
-    height: length,
-    label: string,
-    color: string,
-    connectors: [ConnectorData],
-    value: bool,        // Simulation state value (true/false)
-    has_value: bool,    // Whether the node has a simulation value set
-}
-
-// Net data structure
-export struct NetData {
-    id: string,
-    segments: [{start_x: length, start_y: length, end_x: length, end_y: length}], // List of line segments that make up this net
-    value: bool,           // Logical value carried by this net
-    has_value: bool,       // Whether the net carries a valid value
-    simulation_mode: bool, // Whether we're in simulation mode
 }
 
 // Main graph view component
@@ -248,6 +280,7 @@ export component GraphView {
             // Dynamic nets rendering
             for net in nets: NetLine {
                 segments: net.segments;
+                waypoints: net.waypoints;
                 is-selected: selected-nets.length > 0 && selected-nets[0] == net.id;
                 value: net.value;
                 has-value: net.has_value;

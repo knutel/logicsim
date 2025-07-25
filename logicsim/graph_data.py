@@ -98,15 +98,28 @@ class NetConnector:
 
 
 @dataclass
+class NetWaypoint:
+    """Represents a waypoint on a net for routing"""
+    id: str
+    x: float
+    y: float
+
+
+@dataclass
 class Net:
     """Represents a net connecting any number of node connectors"""
     id: str
     connectors: List['NetConnector']
+    waypoints: List['NetWaypoint'] = None
     
     def __post_init__(self):
-        """Validate net has at least one connector"""
+        """Validate net has at least one connector and initialize waypoints"""
         if not self.connectors:
             raise ValueError(f"Net {self.id} must have at least one connector")
+        if self.waypoints is None:
+            self.waypoints = []
+        # Initialize waypoint connections for tracking topology
+        self._waypoint_connections = {}
     
     @classmethod
     def create_two_point(cls, id: str, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> 'Net':
@@ -263,15 +276,20 @@ class GraphData:
         self.nets: Dict[str, Net] = {}
         self.selected_node_id: str | None = None  # Track currently selected node
         self.selected_net_id: str | None = None  # Track currently selected net
+        self.selected_waypoint_id: str | None = None  # Track currently selected waypoint
+        self.selected_waypoint_net_id: str | None = None  # Track which net contains selected waypoint
         
         # Movement state tracking
         self.pointer_state: PointerState = PointerState.IDLE
         self.drag_start_pos: tuple[float, float] = (0.0, 0.0)
         self.drag_node_id: str | None = None
+        self.drag_waypoint_net_id: str | None = None  # Net ID of waypoint being dragged
+        self.drag_waypoint_id: str | None = None  # ID of waypoint being dragged
         self.drag_offset: tuple[float, float] = (0.0, 0.0)  # Offset within node when drag started
         self.movement_threshold: float = 5.0  # Minimum pixels to consider movement
         self.click_selected_different_node: bool = False  # Track if we selected a different node on click
         self.click_selected_different_net: bool = False  # Track if we selected a different net on click
+        self.click_selected_different_waypoint: bool = False  # Track if we selected a different waypoint on click
         
         # Label editing state tracking
         self.editing_node_id: str | None = None
@@ -283,6 +301,8 @@ class GraphData:
         self.creating_net: bool = False
         self.net_start_node_id: str | None = None
         self.net_start_connector_id: str | None = None
+        self.net_start_waypoint_net_id: str | None = None  # For net creation from waypoints
+        self.net_start_waypoint_id: str | None = None  # For net creation from waypoints
         self.pending_net_end_x: float = 0.0
         self.pending_net_end_y: float = 0.0
         
@@ -1012,6 +1032,287 @@ class GraphData:
         
         return None
     
+    def get_waypoint_at_position(self, x: float, y: float, tolerance: float = 8.0) -> tuple[str, str] | None:
+        """Get the waypoint at the given position. Returns (net_id, waypoint_id) or None if no waypoint"""
+        # Check all nets and their waypoints
+        # Iterate in reverse order so later-added nets take priority
+        for net_id, net in reversed(list(self.nets.items())):
+            for waypoint in net.waypoints:
+                # Check if point is within tolerance distance of waypoint center
+                distance = math.sqrt((x - waypoint.x) ** 2 + (y - waypoint.y) ** 2)
+                if distance <= tolerance:
+                    return (net_id, waypoint.id)
+        
+        return None
+    
+    def add_waypoint_to_net(self, net_id: str, x: float, y: float, segment_index: int = None) -> str:
+        """
+        Add a waypoint to a net, optionally at a specific segment.
+        
+        Args:
+            net_id: ID of the net to add waypoint to
+            x, y: Position of the new waypoint
+            segment_index: Index of segment to split (if None, waypoint is just added)
+            
+        Returns:
+            str: ID of the created waypoint
+            
+        Raises:
+            ValueError: If net doesn't exist
+        """
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        
+        # Generate unique waypoint ID
+        waypoint_id = f"wp_{net_id}_{len(net.waypoints)}"
+        waypoint = NetWaypoint(waypoint_id, x, y)
+        
+        if segment_index is not None and 0 <= segment_index < len(net.waypoints) + 1:
+            # Insert waypoint at specific position
+            net.waypoints.insert(segment_index, waypoint)
+        else:
+            # Add waypoint to the end
+            net.waypoints.append(waypoint)
+        
+        self.logger.debug(f"Added waypoint {waypoint_id} to net {net_id} at ({x}, {y})")
+        return waypoint_id
+    
+    def remove_waypoint(self, net_id: str, waypoint_id: str) -> bool:
+        """
+        Remove a waypoint from a net.
+        
+        Args:
+            net_id: ID of the net containing the waypoint
+            waypoint_id: ID of the waypoint to remove
+            
+        Returns:
+            bool: True if waypoint was found and removed
+            
+        Raises:
+            ValueError: If net doesn't exist
+        """
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        
+        for i, waypoint in enumerate(net.waypoints):
+            if waypoint.id == waypoint_id:
+                net.waypoints.pop(i)
+                self.logger.debug(f"Removed waypoint {waypoint_id} from net {net_id}")
+                return True
+        
+        return False
+    
+    def move_waypoint(self, net_id: str, waypoint_id: str, x: float, y: float) -> bool:
+        """
+        Move a waypoint to a new position.
+        
+        Args:
+            net_id: ID of the net containing the waypoint
+            waypoint_id: ID of the waypoint to move
+            x, y: New position for the waypoint
+            
+        Returns:
+            bool: True if waypoint was found and moved
+            
+        Raises:
+            ValueError: If net doesn't exist
+        """
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        
+        for waypoint in net.waypoints:
+            if waypoint.id == waypoint_id:
+                old_x, old_y = waypoint.x, waypoint.y
+                waypoint.x = x
+                waypoint.y = y
+                self.logger.debug(f"Moved waypoint {waypoint_id} from ({old_x}, {old_y}) to ({x}, {y})")
+                return True
+        
+        return False
+    
+    def delete_waypoint(self, net_id: str, waypoint_id: str) -> bool:
+        """
+        Delete a waypoint from a net and update selection state.
+        
+        Args:
+            net_id: ID of the net containing the waypoint
+            waypoint_id: ID of the waypoint to delete
+            
+        Returns:
+            bool: True if waypoint was found and deleted (UI needs refresh)
+            
+        Raises:
+            ValueError: If net doesn't exist
+        """
+        removed = self.remove_waypoint(net_id, waypoint_id)
+        
+        if removed:
+            # Clear waypoint selection if we deleted the selected waypoint
+            if self.selected_waypoint_id == waypoint_id and self.selected_waypoint_net_id == net_id:
+                self.deselect_waypoint()
+            
+            self.logger.debug(f"Deleted waypoint {waypoint_id} from net {net_id}")
+            return True
+        
+        return False
+    
+    def _get_segment_endpoints(self, net: Net, segment_index: int) -> tuple[tuple[str, str], tuple[str, str]] | None:
+        """
+        Get the endpoints of a specific segment in a net.
+        
+        Args:
+            net: Net object
+            segment_index: Index of the segment in the current rendering
+            
+        Returns:
+            tuple: ((endpoint1_type, endpoint1_id), (endpoint2_type, endpoint2_id))
+                   where type is 'connector' or 'waypoint'
+            None if segment_index is invalid
+        """
+        segments = self._calculate_net_segments(net)
+        if segment_index < 0 or segment_index >= len(segments):
+            return None
+            
+        segment = segments[segment_index]
+        
+        # Find which endpoints this segment connects
+        # We need to match the segment coordinates with connector/waypoint positions
+        start_x, start_y = segment["start_x"], segment["start_y"]
+        end_x, end_y = segment["end_x"], segment["end_y"]
+        
+        def find_endpoint(x: float, y: float) -> tuple[str, str] | None:
+            # Check connectors first
+            for conn in net.connectors:
+                conn_x, conn_y = self.get_connector_absolute_position(conn.node_id, conn.connector_id)
+                if abs(conn_x - x) < 0.1 and abs(conn_y - y) < 0.1:
+                    return ('connector', f"{conn.node_id}:{conn.connector_id}")
+            
+            # Check waypoints
+            for wp in net.waypoints:
+                if abs(wp.x - x) < 0.1 and abs(wp.y - y) < 0.1:
+                    return ('waypoint', wp.id)
+            
+            return None
+        
+        start_endpoint = find_endpoint(start_x, start_y)
+        end_endpoint = find_endpoint(end_x, end_y)
+        
+        if start_endpoint and end_endpoint:
+            return (start_endpoint, end_endpoint)
+        
+        return None
+    
+    def add_waypoint_at_segment(self, net_id: str, x: float, y: float) -> str | None:
+        """
+        Add a waypoint by splitting the line segment closest to the given point.
+        
+        Args:
+            net_id: ID of the net to add waypoint to
+            x, y: Position where to add the waypoint
+            
+        Returns:
+            str: ID of the created waypoint, or None if no suitable segment found
+            
+        Raises:
+            ValueError: If net doesn't exist
+        """
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        segments = self._calculate_net_segments(net)
+        
+        if not segments:
+            return None
+        
+        # Find the segment closest to the click point
+        min_distance = float('inf')
+        closest_segment_idx = -1
+        
+        for i, segment in enumerate(segments):
+            distance = self.point_to_line_segment_distance(
+                x, y,
+                segment["start_x"], segment["start_y"],
+                segment["end_x"], segment["end_y"]
+            )
+            if distance < min_distance:
+                min_distance = distance
+                closest_segment_idx = i
+        
+        if closest_segment_idx >= 0:
+            # Get the endpoints of this segment
+            endpoints = self._get_segment_endpoints(net, closest_segment_idx)
+            if endpoints is None:
+                # Fallback to old behavior if we can't identify endpoints
+                return self.add_waypoint_to_net(net_id, x, y, closest_segment_idx)
+            
+            # Create waypoint that will split this specific segment
+            waypoint_id = self._insert_waypoint_between_endpoints(net_id, x, y, endpoints)
+            return waypoint_id
+        
+        return None
+    
+    def _insert_waypoint_between_endpoints(self, net_id: str, x: float, y: float, endpoints: tuple[tuple[str, str], tuple[str, str]]) -> str:
+        """
+        Insert a waypoint between two specific endpoints, properly updating the net topology.
+        
+        Args:
+            net_id: ID of the net
+            x, y: Position of the new waypoint
+            endpoints: ((type1, id1), (type2, id2)) endpoints to insert waypoint between
+            
+        Returns:
+            str: ID of the created waypoint
+        """
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        
+        # Generate unique waypoint ID
+        waypoint_id = f"wp_{net_id}_{len(net.waypoints)}"
+        waypoint = NetWaypoint(waypoint_id, x, y)
+        
+        # Add the waypoint to the net
+        net.waypoints.append(waypoint)
+        
+        # Initialize topology management if needed
+        if not hasattr(net, '_waypoint_connections'):
+            net._waypoint_connections = {}
+        
+        # Find and remove the existing direct connection between these endpoints
+        endpoint1 = endpoints[0]
+        endpoint2 = endpoints[1]
+        
+        # Remove any existing direct connection between these endpoints
+        connections_to_remove = []
+        for wp_id, wp_endpoints in net._waypoint_connections.items():
+            if (wp_endpoints[0] == endpoint1 and wp_endpoints[1] == endpoint2) or \
+               (wp_endpoints[0] == endpoint2 and wp_endpoints[1] == endpoint1):
+                connections_to_remove.append(wp_id)
+        
+        # Remove the connections (this handles the case where we're splitting an existing waypoint connection)
+        for wp_id in connections_to_remove:
+            del net._waypoint_connections[wp_id]
+        
+        # Create two new connections: endpoint1 -> waypoint -> endpoint2
+        # This creates a sequential chain rather than a star topology
+        waypoint_endpoint = ('waypoint', waypoint_id)
+        
+        # Store the connections that pass through this waypoint
+        # We'll use the waypoint as an intermediate point in the topology
+        net._waypoint_connections[f"{waypoint_id}_to_{endpoint1[1]}"] = (waypoint_endpoint, endpoint1)
+        net._waypoint_connections[f"{waypoint_id}_to_{endpoint2[1]}"] = (waypoint_endpoint, endpoint2)
+        
+        self.logger.debug(f"Added waypoint {waypoint_id} between {endpoint1} and {endpoint2}, created sequential chain")
+        return waypoint_id
+    
     def select_node(self, node_id: str) -> None:
         """Select a specific node by ID"""
         if node_id not in self.nodes:
@@ -1019,9 +1320,11 @@ class GraphData:
         
         previous_selection = self.selected_node_id
         
-        # Deselect any selected net (mutual exclusion)
+        # Deselect any selected net or waypoint (mutual exclusion)
         if self.selected_net_id is not None:
             self.deselect_net()
+        if self.selected_waypoint_id is not None:
+            self.deselect_waypoint()
         
         self.selected_node_id = node_id
         
@@ -1052,9 +1355,11 @@ class GraphData:
         
         previous_selection = self.selected_net_id
         
-        # Deselect any selected node (mutual exclusion)
+        # Deselect any selected node or waypoint (mutual exclusion)
         if self.selected_node_id is not None:
             self.deselect_node()
+        if self.selected_waypoint_id is not None:
+            self.deselect_waypoint()
         
         self.selected_net_id = net_id
         
@@ -1071,6 +1376,44 @@ class GraphData:
     def get_selected_net(self) -> str | None:
         """Get the ID of the currently selected net"""
         return self.selected_net_id
+    
+    def select_waypoint(self, net_id: str, waypoint_id: str) -> None:
+        """Select a specific waypoint by ID"""
+        if net_id not in self.nets:
+            raise ValueError(f"Net with ID '{net_id}' does not exist")
+        
+        net = self.nets[net_id]
+        waypoint_found = any(wp.id == waypoint_id for wp in net.waypoints)
+        if not waypoint_found:
+            raise ValueError(f"Waypoint with ID '{waypoint_id}' does not exist in net '{net_id}'")
+        
+        previous_selection = self.selected_waypoint_id
+        
+        # Deselect any selected node or net (mutual exclusion)
+        if self.selected_node_id is not None:
+            self.deselect_node()
+        if self.selected_net_id is not None:
+            self.deselect_net()
+        
+        self.selected_waypoint_id = waypoint_id
+        self.selected_waypoint_net_id = net_id
+        
+        if previous_selection != waypoint_id:
+            self.logger.debug(f"Selected waypoint: {net_id}:{waypoint_id} (previously: {previous_selection})")
+    
+    def deselect_waypoint(self) -> None:
+        """Deselect the currently selected waypoint"""
+        if self.selected_waypoint_id is not None:
+            previous_selection = f"{self.selected_waypoint_net_id}:{self.selected_waypoint_id}"
+            self.selected_waypoint_id = None
+            self.selected_waypoint_net_id = None
+            self.logger.debug(f"Deselected waypoint: {previous_selection}")
+    
+    def get_selected_waypoint(self) -> tuple[str, str] | None:
+        """Get the (net_id, waypoint_id) of the currently selected waypoint"""
+        if self.selected_waypoint_id is not None and self.selected_waypoint_net_id is not None:
+            return (self.selected_waypoint_net_id, self.selected_waypoint_id)
+        return None
     
     def get_net_connectors(self, net_id: str) -> List[NetConnector]:
         """Get all connectors on a specific net"""
@@ -1234,6 +1577,8 @@ class GraphData:
             return self.delete_node(self.selected_node_id)
         elif self.selected_net_id is not None:
             return self.delete_net(self.selected_net_id)
+        elif self.selected_waypoint_id is not None and self.selected_waypoint_net_id is not None:
+            return self.delete_waypoint(self.selected_waypoint_net_id, self.selected_waypoint_id)
         else:
             self.logger.debug("Delete requested but nothing is selected")
             return False
@@ -1293,11 +1638,21 @@ class GraphData:
             self.logger.warning("Cannot complete net creation - not in creation mode")
             return False
         
-        if self.net_start_node_id is None or self.net_start_connector_id is None:
-            self.logger.warning("Cannot complete net creation - missing start connector")
+        # Check if we're starting from a connector (traditional creation)
+        if self.net_start_node_id is not None and self.net_start_connector_id is not None:
+            return self._complete_connector_to_connector_net(end_node_id, end_connector_id)
+        
+        # Check if we're starting from a waypoint
+        elif self.net_start_waypoint_net_id is not None and self.net_start_waypoint_id is not None:
+            return self._complete_waypoint_to_connector_net(end_node_id, end_connector_id)
+        
+        else:
+            self.logger.warning("Cannot complete net creation - missing start connector or waypoint")
             self.cancel_net_creation()
             return True
-        
+    
+    def _complete_connector_to_connector_net(self, end_node_id: str, end_connector_id: str) -> bool:
+        """Complete net creation from connector to connector (traditional creation)."""
         # Validate the net can be created
         if not self.can_create_net(self.net_start_node_id, self.net_start_connector_id, 
                                         end_node_id, end_connector_id):
@@ -1327,6 +1682,69 @@ class GraphData:
         self.logger.debug(f"Created net: {net.id}")
         return True
     
+    def _complete_waypoint_to_connector_net(self, end_node_id: str, end_connector_id: str) -> bool:
+        """Complete net creation from waypoint to connector."""
+        # Validate the target connector exists
+        if end_node_id not in self.nodes:
+            self.logger.warning(f"Cannot complete net creation - target node {end_node_id} does not exist")
+            self.cancel_net_creation()
+            return True
+        
+        end_node = self.nodes[end_node_id]
+        end_connector = None
+        for connector in end_node.connectors:
+            if connector.id == end_connector_id:
+                end_connector = connector
+                break
+        
+        if end_connector is None:
+            self.logger.warning(f"Cannot complete net creation - target connector {end_connector_id} does not exist")
+            self.cancel_net_creation()
+            return True
+        
+        # Get the existing net that contains the starting waypoint
+        if self.net_start_waypoint_net_id not in self.nets:
+            self.logger.warning(f"Cannot complete net creation - starting net {self.net_start_waypoint_net_id} does not exist")
+            self.cancel_net_creation()
+            return True
+        
+        start_net = self.nets[self.net_start_waypoint_net_id]
+        
+        # Verify the waypoint exists in the net
+        start_waypoint = None
+        for waypoint in start_net.waypoints:
+            if waypoint.id == self.net_start_waypoint_id:
+                start_waypoint = waypoint
+                break
+        
+        if start_waypoint is None:
+            self.logger.warning(f"Cannot complete net creation - starting waypoint {self.net_start_waypoint_id} does not exist")
+            self.cancel_net_creation()
+            return True
+        
+        # Check if the connector is already connected to this net
+        if start_net.has_connector(end_node_id, end_connector_id):
+            self.logger.debug(f"Connector {end_node_id}:{end_connector_id} is already connected to net {self.net_start_waypoint_net_id}")
+            self.cancel_net_creation()
+            return True
+        
+        # Add the connector to the existing net
+        start_net.add_connector(end_node_id, end_connector_id)
+        
+        # Update waypoint connections to include the new connector
+        if hasattr(start_net, '_waypoint_connections') and start_net._waypoint_connections:
+            # Add a connection from the waypoint to the new connector
+            connector_endpoint = ('connector', f"{end_node_id}:{end_connector_id}")
+            waypoint_endpoint = ('waypoint', self.net_start_waypoint_id)
+            connection_id = f"{self.net_start_waypoint_id}_to_{end_node_id}_{end_connector_id}"
+            start_net._waypoint_connections[connection_id] = (waypoint_endpoint, connector_endpoint)
+        
+        # Clear net creation state
+        self.cancel_net_creation()
+        
+        self.logger.debug(f"Added connector {end_node_id}:{end_connector_id} to net {self.net_start_waypoint_net_id} from waypoint {self.net_start_waypoint_id}")
+        return True
+    
     def cancel_net_creation(self) -> bool:
         """Cancel net creation and return to idle state. Returns True if UI should be refreshed."""
         if not self.creating_net:
@@ -1335,10 +1753,131 @@ class GraphData:
         self.creating_net = False
         self.net_start_node_id = None
         self.net_start_connector_id = None
+        self.net_start_waypoint_net_id = None
+        self.net_start_waypoint_id = None
         self.pending_net_end_x = 0.0
         self.pending_net_end_y = 0.0
         
         self.logger.debug("Cancelled net creation")
+        return True
+    
+    def start_net_creation_from_waypoint(self, net_id: str, waypoint_id: str) -> bool:
+        """Start creating a new net from an existing waypoint. Returns True if UI should be refreshed."""
+        if net_id not in self.nets:
+            self.logger.warning(f"Cannot start net from waypoint in non-existent net: {net_id}")
+            return False
+        
+        net = self.nets[net_id]
+        waypoint = None
+        for wp in net.waypoints:
+            if wp.id == waypoint_id:
+                waypoint = wp
+                break
+        
+        if waypoint is None:
+            self.logger.warning(f"Cannot start net from non-existent waypoint: {net_id}:{waypoint_id}")
+            return False
+        
+        # Cancel any existing label editing
+        if self.editing_node_id is not None:
+            self.cancel_label_edit()
+        
+        # Clear any existing selections
+        if self.selected_node_id is not None:
+            self.deselect_node()
+        if self.selected_net_id is not None:
+            self.deselect_net()
+        
+        # Start net creation from waypoint
+        self.creating_net = True
+        self.net_start_node_id = None  # No node - starting from waypoint
+        self.net_start_connector_id = None
+        
+        # Store waypoint information for net creation
+        self.net_start_waypoint_net_id = net_id
+        self.net_start_waypoint_id = waypoint_id
+        
+        # Initialize pending net end point at the waypoint position
+        self.pending_net_end_x = waypoint.x
+        self.pending_net_end_y = waypoint.y
+        
+        self.logger.debug(f"Started net creation from waypoint {net_id}:{waypoint_id}")
+        return True
+    
+    def complete_net_creation_to_waypoint(self, target_net_id: str, target_waypoint_id: str) -> bool:
+        """
+        Complete net creation by connecting to an existing waypoint (merge nets).
+        Returns True if UI should be refreshed.
+        """
+        if not self.creating_net:
+            self.logger.warning("Cannot complete net creation - not in creation mode")
+            return False
+        
+        if target_net_id not in self.nets:
+            self.logger.warning(f"Cannot complete net to non-existent net: {target_net_id}")
+            self.cancel_net_creation()
+            return True
+        
+        target_net = self.nets[target_net_id]
+        target_waypoint = None
+        for wp in target_net.waypoints:
+            if wp.id == target_waypoint_id:
+                target_waypoint = wp
+                break
+        
+        if target_waypoint is None:
+            self.logger.warning(f"Cannot complete net to non-existent waypoint: {target_net_id}:{target_waypoint_id}")
+            self.cancel_net_creation()
+            return True
+        
+        # Check if we're starting from a connector or a waypoint
+        if self.net_start_node_id is not None:
+            # Starting from a connector - add connector to the target net
+            try:
+                target_net.add_connector(self.net_start_node_id, self.net_start_connector_id)
+                self.logger.debug(f"Added connector {self.net_start_node_id}:{self.net_start_connector_id} to existing net {target_net_id}")
+                
+                # Update waypoint connections to include the new connector
+                if hasattr(target_net, '_waypoint_connections'):
+                    if not target_net._waypoint_connections:
+                        target_net._waypoint_connections = {}
+                    
+                    # Add a connection from the target waypoint to the new connector
+                    connector_endpoint = ('connector', f"{self.net_start_node_id}:{self.net_start_connector_id}")
+                    waypoint_endpoint = ('waypoint', target_waypoint_id)
+                    connection_id = f"{target_waypoint_id}_to_{self.net_start_node_id}_{self.net_start_connector_id}"
+                    target_net._waypoint_connections[connection_id] = (waypoint_endpoint, connector_endpoint)
+                    
+                    self.logger.debug(f"Added waypoint connection: {connection_id}")
+                    
+            except ValueError as e:
+                self.logger.warning(f"Cannot add connector to net: {e}")
+                self.cancel_net_creation()
+                return True
+        else:
+            # Starting from a waypoint - merge the two nets
+            if self.net_start_waypoint_net_id is not None and self.net_start_waypoint_net_id != target_net_id:
+                source_net = self.nets.get(self.net_start_waypoint_net_id)
+                if source_net is not None:
+                    # Merge source net into target net
+                    for connector in source_net.connectors:
+                        try:
+                            target_net.add_connector(connector.node_id, connector.connector_id)
+                        except ValueError:
+                            # Connector already exists, skip
+                            pass
+                    
+                    # Merge waypoints (except the source waypoint we're connecting from)
+                    for waypoint in source_net.waypoints:
+                        if waypoint.id != self.net_start_waypoint_id:
+                            target_net.waypoints.append(waypoint)
+                    
+                    # Remove the source net
+                    del self.nets[self.net_start_waypoint_net_id]
+                    self.logger.debug(f"Merged net {self.net_start_waypoint_net_id} into {target_net_id}")
+        
+        # Clear net creation state
+        self.cancel_net_creation()
         return True
     
     def can_create_net(self, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> bool:
@@ -1505,9 +2044,15 @@ class GraphData:
             if clicked_connector is not None:
                 node_id, connector_id = clicked_connector
                 return self.complete_net_creation(node_id, connector_id)
-            else:
-                # Clicked on empty area - cancel net creation
-                return self.cancel_net_creation()
+            
+            # Check if we clicked on a waypoint to complete the net
+            clicked_waypoint = self.get_waypoint_at_position(x, y)
+            if clicked_waypoint is not None:
+                net_id, waypoint_id = clicked_waypoint
+                return self.complete_net_creation_to_waypoint(net_id, waypoint_id)
+            
+            # Clicked on empty area - cancel net creation
+            return self.cancel_net_creation()
         
         # Check if we clicked on a connector to start net creation
         clicked_connector = self.get_connector_at_position(x, y)
@@ -1522,6 +2067,7 @@ class GraphData:
         self.pointer_state = PointerState.PRESSED
         self.click_selected_different_node = False
         self.click_selected_different_net = False
+        self.click_selected_different_waypoint = False
         
         if clicked_node_id is not None:
             self.drag_node_id = clicked_node_id
@@ -1537,16 +2083,34 @@ class GraphData:
                 return True
         else:
             self.drag_node_id = None
+            self.drag_waypoint_net_id = None
+            self.drag_waypoint_id = None
             self.drag_offset = (0.0, 0.0)
             
-            # Check for net selection if no node was clicked
-            clicked_net_id = self.get_net_at_position(x, y)
-            if clicked_net_id is not None:
-                # If clicking on an unselected net, select it immediately
-                if clicked_net_id != self.selected_net_id:
-                    self.select_net(clicked_net_id)
-                    self.click_selected_different_net = True
+            # Check for waypoint selection first (before net selection)
+            clicked_waypoint = self.get_waypoint_at_position(x, y)
+            if clicked_waypoint is not None:
+                net_id, waypoint_id = clicked_waypoint
+                current_selection = self.get_selected_waypoint()
+                
+                # Set up waypoint dragging
+                self.drag_waypoint_net_id = net_id
+                self.drag_waypoint_id = waypoint_id
+                
+                # If clicking on an unselected waypoint, select it immediately
+                if current_selection is None or current_selection != (net_id, waypoint_id):
+                    self.select_waypoint(net_id, waypoint_id)
+                    self.click_selected_different_waypoint = True
                     return True
+            else:
+                # Check for net selection if no waypoint was clicked
+                clicked_net_id = self.get_net_at_position(x, y)
+                if clicked_net_id is not None:
+                    # If clicking on an unselected net, select it immediately
+                    if clicked_net_id != self.selected_net_id:
+                        self.select_net(clicked_net_id)
+                        self.click_selected_different_net = True
+                        return True
         
         return False
     
@@ -1571,7 +2135,10 @@ class GraphData:
         # Check if we should transition to dragging state
         if self.pointer_state == PointerState.PRESSED and distance > self.movement_threshold:
             self.pointer_state = PointerState.DRAGGING
-            self.logger.debug(f"Started dragging node {self.drag_node_id}")
+            if self.drag_node_id is not None:
+                self.logger.debug(f"Started dragging node {self.drag_node_id}")
+            elif self.drag_waypoint_id is not None:
+                self.logger.debug(f"Started dragging waypoint {self.drag_waypoint_net_id}:{self.drag_waypoint_id}")
         
         # If we're dragging and have a node to move
         if self.pointer_state == PointerState.DRAGGING and self.drag_node_id is not None:
@@ -1581,6 +2148,12 @@ class GraphData:
             
             # Move the node
             self.move_node(self.drag_node_id, new_x, new_y)
+            return True
+        
+        # If we're dragging and have a waypoint to move
+        if self.pointer_state == PointerState.DRAGGING and self.drag_waypoint_id is not None:
+            # Move the waypoint directly to the mouse position
+            self.move_waypoint(self.drag_waypoint_net_id, self.drag_waypoint_id, x, y)
             return True
         
         return False
@@ -1594,6 +2167,8 @@ class GraphData:
         if self.simulation_mode:
             self.pointer_state = PointerState.IDLE
             self.drag_node_id = None
+            self.drag_waypoint_net_id = None
+            self.drag_waypoint_id = None
             self.drag_offset = (0.0, 0.0)
             return False
         
@@ -1623,15 +2198,24 @@ class GraphData:
                 # Only deselect if we didn't just select it (i.e., it was already selected)
                 self.deselect_node()
                 ui_needs_refresh = True
-            # If we clicked on a different node or net, it was already selected in handle_pointer_down
+            elif self.drag_waypoint_id is not None and not self.click_selected_different_waypoint:
+                # Clicked on already selected waypoint - deselect it
+                current_selection = self.get_selected_waypoint()
+                if current_selection is not None and current_selection == (self.drag_waypoint_net_id, self.drag_waypoint_id):
+                    self.deselect_waypoint()
+                    ui_needs_refresh = True
+            # If we clicked on a different node, net, or waypoint, it was already selected in handle_pointer_down
         
         # Reset drag state
         self.pointer_state = PointerState.IDLE
         self.drag_start_pos = (0.0, 0.0)
         self.drag_node_id = None
+        self.drag_waypoint_net_id = None
+        self.drag_waypoint_id = None
         self.drag_offset = (0.0, 0.0)
         self.click_selected_different_node = False
         self.click_selected_different_net = False
+        self.click_selected_different_waypoint = False
         
         # Return True if we were dragging or if selection changed
         return was_dragging or ui_needs_refresh
@@ -1691,7 +2275,8 @@ class GraphData:
         self.editing_text = text
     
     def handle_double_click(self, x: float, y: float) -> bool:
-        """Handle double-click for input node toggling or label editing. Returns True if UI should be refreshed."""
+        """Handle double-click for input node toggling, label editing, or waypoint creation. Returns True if UI should be refreshed."""
+        # Check if we clicked on a node first
         clicked_node_id = self.get_node_at_position(x, y)
         
         if clicked_node_id is not None:
@@ -1708,6 +2293,23 @@ class GraphData:
                     # In simulation mode, non-input nodes can't be edited
                     self.logger.debug(f"Ignoring double-click on {clicked_node.node_type} node in simulation mode")
                     return False
+        
+        # If no node was clicked, check for waypoint double-click
+        clicked_waypoint = self.get_waypoint_at_position(x, y)
+        if clicked_waypoint is not None and not self.simulation_mode:
+            net_id, waypoint_id = clicked_waypoint
+            # Start net creation from this waypoint
+            return self.start_net_creation_from_waypoint(net_id, waypoint_id)
+        
+        # If no node or waypoint was clicked, check for net segment double-click
+        if not self.simulation_mode:
+            clicked_net_id = self.get_net_at_position(x, y)
+            if clicked_net_id is not None:
+                # Add waypoint at this position on the net
+                waypoint_id = self.add_waypoint_at_segment(clicked_net_id, x, y)
+                if waypoint_id is not None:
+                    self.logger.debug(f"Added waypoint {waypoint_id} to net {clicked_net_id} at ({x}, {y})")
+                    return True
         
         return False
     
@@ -1795,9 +2397,20 @@ class GraphData:
             # Get net value for simulation mode visualization
             net_value, has_net_value = self._get_net_value(net)
             
+            # Convert waypoints with selection state
+            waypoints_data = []
+            for waypoint in net.waypoints:
+                waypoints_data.append({
+                    "id": waypoint.id,
+                    "x": waypoint.x,
+                    "y": waypoint.y,
+                    "is_selected": self.selected_waypoint_id == waypoint.id if hasattr(self, 'selected_waypoint_id') else False
+                })
+            
             slint_net = {
                 "id": net.id,
                 "segments": segments,
+                "waypoints": waypoints_data,
                 "value": net_value,
                 "has_value": has_net_value,
                 "simulation_mode": self.simulation_mode
@@ -1808,8 +2421,18 @@ class GraphData:
         pending_start_x = 0.0
         pending_start_y = 0.0
         if self.creating_net and self.net_start_node_id and self.net_start_connector_id:
+            # Net creation starting from a node connector
             pending_start_x, pending_start_y = self.get_connector_absolute_position(
                 self.net_start_node_id, self.net_start_connector_id)
+        elif self.creating_net and self.net_start_waypoint_net_id and self.net_start_waypoint_id:
+            # Net creation starting from a waypoint
+            if self.net_start_waypoint_net_id in self.nets:
+                net = self.nets[self.net_start_waypoint_net_id]
+                for waypoint in net.waypoints:
+                    if waypoint.id == self.net_start_waypoint_id:
+                        pending_start_x = waypoint.x
+                        pending_start_y = waypoint.y
+                        break
         
         return {
             "nodes": slint_nodes,
@@ -1830,56 +2453,168 @@ class GraphData:
 
     def _calculate_net_segments(self, net: Net) -> List[Dict[str, float]]:
         """
-        Calculate line segments for rendering a net.
+        Calculate line segments for rendering a net with proper graph-based waypoint routing.
         
-        For 2 connectors: direct line
-        For 3+ connectors: star topology (center point to each connector)
+        This builds a graph of connections and generates the appropriate segments.
         
         Returns:
             List of segment dictionaries with start_x, start_y, end_x, end_y
         """
-        if len(net.connectors) < 2:
+        if len(net.connectors) < 1:
             # Invalid net - return empty segments
             return []
         
         segments = []
         
-        if len(net.connectors) == 2:
-            # Direct line between two connectors
-            conn1, conn2 = net.connectors[0], net.connectors[1]
-            start_x, start_y = self.get_connector_absolute_position(conn1.node_id, conn1.connector_id)
-            end_x, end_y = self.get_connector_absolute_position(conn2.node_id, conn2.connector_id)
-            
-            segments.append({
-                "start_x": start_x,
-                "start_y": start_y,
-                "end_x": end_x,
-                "end_y": end_y
-            })
-        else:
-            # Star topology for 3+ connectors
-            # Calculate center point as average of all connector positions
-            total_x = 0.0
-            total_y = 0.0
-            connector_positions = []
-            
-            for conn in net.connectors:
-                x, y = self.get_connector_absolute_position(conn.node_id, conn.connector_id)
-                connector_positions.append((x, y))
-                total_x += x
-                total_y += y
-            
-            center_x = total_x / len(net.connectors)
-            center_y = total_y / len(net.connectors)
-            
-            # Create line segments from center to each connector
-            for x, y in connector_positions:
+        if not net.waypoints:
+            # No waypoints - use original logic
+            if len(net.connectors) == 1:
+                # Single connector - no segments needed
+                return []
+            elif len(net.connectors) == 2:
+                # Direct line between two connectors
+                conn1, conn2 = net.connectors[0], net.connectors[1]
+                start_x, start_y = self.get_connector_absolute_position(conn1.node_id, conn1.connector_id)
+                end_x, end_y = self.get_connector_absolute_position(conn2.node_id, conn2.connector_id)
                 segments.append({
-                    "start_x": center_x,
-                    "start_y": center_y,
-                    "end_x": x,
-                    "end_y": y
+                    "start_x": start_x,
+                    "start_y": start_y,
+                    "end_x": end_x,
+                    "end_y": end_y
                 })
+            else:
+                # Star topology for 3+ connectors
+                connector_positions = []
+                for conn in net.connectors:
+                    x, y = self.get_connector_absolute_position(conn.node_id, conn.connector_id)
+                    connector_positions.append((x, y))
+                
+                total_x = sum(pos[0] for pos in connector_positions)
+                total_y = sum(pos[1] for pos in connector_positions)
+                center_x = total_x / len(connector_positions)
+                center_y = total_y / len(connector_positions)
+                
+                # Create line segments from center to each connector
+                for x, y in connector_positions:
+                    segments.append({
+                        "start_x": center_x,
+                        "start_y": center_y,
+                        "end_x": x,
+                        "end_y": y
+                    })
+        else:
+            # With waypoints - build proper graph topology
+            segments = self._build_waypoint_graph_segments(net)
+        
+        return segments
+    
+    def _build_waypoint_graph_segments(self, net: Net) -> List[Dict[str, float]]:
+        """
+        Build segments for a net with waypoints using proper graph topology.
+        
+        This creates sequential chains through waypoints instead of star topology.
+        """
+        segments = []
+        
+        # Get all endpoints (connectors and waypoints) with their positions
+        def get_endpoint_position(endpoint_type: str, endpoint_id: str) -> tuple[float, float]:
+            if endpoint_type == 'connector':
+                # Parse connector ID (format: "node_id:connector_id")
+                node_id, connector_id = endpoint_id.split(':', 1)
+                return self.get_connector_absolute_position(node_id, connector_id)
+            elif endpoint_type == 'waypoint':
+                for wp in net.waypoints:
+                    if wp.id == endpoint_id:
+                        return (wp.x, wp.y)
+            raise ValueError(f"Unknown endpoint: {endpoint_type}:{endpoint_id}")
+        
+        # Check if we have waypoint connection information
+        if hasattr(net, '_waypoint_connections') and net._waypoint_connections:
+            # Use the recorded connections to build segments
+            # The new format stores individual connections, not waypoint-to-two-endpoints
+            processed_connections = set()
+            
+            for connection_id, endpoints in net._waypoint_connections.items():
+                if connection_id in processed_connections:
+                    continue
+                    
+                (type1, id1), (type2, id2) = endpoints
+                
+                try:
+                    pos1 = get_endpoint_position(type1, id1)
+                    pos2 = get_endpoint_position(type2, id2)
+                    
+                    segments.append({
+                        "start_x": pos1[0],
+                        "start_y": pos1[1],
+                        "end_x": pos2[0],
+                        "end_y": pos2[1]
+                    })
+                    
+                    processed_connections.add(connection_id)
+                    
+                except ValueError as e:
+                    self.logger.warning(f"Could not build segment for connection {connection_id}: {e}")
+                    continue
+        else:
+            # Fallback: use minimum spanning tree or simple routing
+            # This handles nets created before the new system or through other means
+            segments = self._build_mst_segments(net)
+        
+        return segments
+    
+    def _build_mst_segments(self, net: Net) -> List[Dict[str, float]]:
+        """
+        Build segments using a minimum spanning tree approach for nets without explicit topology.
+        
+        This is a fallback for backward compatibility.
+        """
+        # Get all points (connectors + waypoints)
+        points = []
+        point_info = []
+        
+        # Add connectors
+        for conn in net.connectors:
+            x, y = self.get_connector_absolute_position(conn.node_id, conn.connector_id)
+            points.append((x, y))
+            point_info.append(('connector', f"{conn.node_id}:{conn.connector_id}"))
+        
+        # Add waypoints
+        for wp in net.waypoints:
+            points.append((wp.x, wp.y))
+            point_info.append(('waypoint', wp.id))
+        
+        if len(points) < 2:
+            return []
+        
+        # Build a minimum spanning tree
+        segments = []
+        connected = {0}  # Start with first point
+        
+        while len(connected) < len(points):
+            min_dist = float('inf')
+            best_connection = None
+            
+            for i in connected:
+                for j in range(len(points)):
+                    if j not in connected:
+                        dist = math.sqrt(
+                            (points[i][0] - points[j][0]) ** 2 + 
+                            (points[i][1] - points[j][1]) ** 2
+                        )
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_connection = (i, j)
+            
+            if best_connection:
+                i, j = best_connection
+                segments.append({
+                    "start_x": points[i][0],
+                    "start_y": points[i][1],
+                    "end_x": points[j][0],
+                    "end_y": points[j][1]
+                })
+                connected.add(j)
         
         return segments
 
