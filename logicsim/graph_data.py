@@ -91,13 +91,82 @@ class Node:
 
 
 @dataclass
+class NetConnector:
+    """Represents a connector attached to a net"""
+    node_id: str
+    connector_id: str
+
+
+@dataclass
 class Net:
-    """Represents a net between two connectors"""
+    """Represents a net connecting any number of node connectors"""
     id: str
-    from_node_id: str
-    from_connector_id: str
-    to_node_id: str
-    to_connector_id: str
+    connectors: List['NetConnector']
+    
+    def __post_init__(self):
+        """Validate net has at least one connector"""
+        if not self.connectors:
+            raise ValueError(f"Net {self.id} must have at least one connector")
+    
+    @classmethod
+    def create_two_point(cls, id: str, from_node_id: str, from_connector_id: str, to_node_id: str, to_connector_id: str) -> 'Net':
+        """Create a traditional two-point net for backward compatibility"""
+        connectors = [
+            NetConnector(from_node_id, from_connector_id),
+            NetConnector(to_node_id, to_connector_id)
+        ]
+        return cls(id, connectors)
+    
+    @classmethod 
+    def create_multi_point(cls, id: str, connectors: List[tuple[str, str]]) -> 'Net':
+        """Create a multi-point net from list of (node_id, connector_id) tuples"""
+        net_connectors = [NetConnector(node_id, connector_id) for node_id, connector_id in connectors]
+        return cls(id, net_connectors)
+    
+    def add_connector(self, node_id: str, connector_id: str) -> None:
+        """Add a connector to this net"""
+        # Check for duplicates
+        for conn in self.connectors:
+            if conn.node_id == node_id and conn.connector_id == connector_id:
+                raise ValueError(f"Connector {node_id}:{connector_id} already exists on net {self.id}")
+        self.connectors.append(NetConnector(node_id, connector_id))
+    
+    def remove_connector(self, node_id: str, connector_id: str) -> bool:
+        """Remove a connector from this net. Returns True if connector was found and removed."""
+        for i, conn in enumerate(self.connectors):
+            if conn.node_id == node_id and conn.connector_id == connector_id:
+                self.connectors.pop(i)
+                return True
+        return False
+    
+    def has_connector(self, node_id: str, connector_id: str) -> bool:
+        """Check if this net has the specified connector"""
+        return any(conn.node_id == node_id and conn.connector_id == connector_id for conn in self.connectors)
+    
+    def get_node_ids(self) -> Set[str]:
+        """Get all unique node IDs connected to this net"""
+        return {conn.node_id for conn in self.connectors}
+    
+    # Properties for backward compatibility with old two-point API
+    @property
+    def from_node_id(self) -> str:
+        """Get first connector's node ID for backward compatibility"""
+        return self.connectors[0].node_id if self.connectors else ""
+    
+    @property
+    def from_connector_id(self) -> str:
+        """Get first connector's connector ID for backward compatibility"""
+        return self.connectors[0].connector_id if self.connectors else ""
+    
+    @property
+    def to_node_id(self) -> str:
+        """Get second connector's node ID for backward compatibility"""
+        return self.connectors[1].node_id if len(self.connectors) > 1 else ""
+    
+    @property
+    def to_connector_id(self) -> str:
+        """Get second connector's connector ID for backward compatibility"""
+        return self.connectors[1].connector_id if len(self.connectors) > 1 else ""
 
 
 class NodeDefinitionRegistry:
@@ -263,7 +332,8 @@ class GraphData:
     def add_net(self, net: Net) -> None:
         """Add a net to the graph"""
         self.nets[net.id] = net
-        self.logger.debug(f"Added net: {net.from_node_id}:{net.from_connector_id} -> {net.to_node_id}:{net.to_connector_id}")
+        connector_list = ", ".join([f"{conn.node_id}:{conn.connector_id}" for conn in net.connectors])
+        self.logger.debug(f"Added net {net.id} with connectors: [{connector_list}]")
     
     def set_input_value(self, node_id: str, value: bool) -> bool:
         """
@@ -324,12 +394,16 @@ class GraphData:
         
         # Count input nets for each node to calculate in-degree
         for net in self.nets.values():
-            from_node = net.from_node_id
-            to_node = net.to_node_id
+            # Get all driving nodes (output connectors) and receiving nodes (input connectors)
+            driving_nodes = self.get_driving_nodes(net.id)
+            receiving_nodes = self.get_receiving_nodes(net.id)
             
-            # Add dependency: from_node must be evaluated before to_node
-            dependency_graph[from_node].append(to_node)
-            in_degree[to_node] += 1
+            # Add dependencies: all driving nodes must be evaluated before receiving nodes
+            for driving_node in driving_nodes:
+                for receiving_node in receiving_nodes:
+                    if driving_node != receiving_node:  # Avoid self-loops
+                        dependency_graph[driving_node].append(receiving_node)
+                        in_degree[receiving_node] += 1
         
         # Initialize queue with nodes that have no dependencies (in-degree = 0)
         # Input nodes and unconnected nodes start here
@@ -384,16 +458,30 @@ class GraphData:
             
             # Consider successors of this node
             for net in self.nets.values():
-                if net.from_node_id == node_id:
-                    successor = net.to_node_id
-                    
-                    if successor not in index:
-                        # Successor has not been visited; recurse on it
-                        strongconnect(successor)
-                        lowlinks[node_id] = min(lowlinks[node_id], lowlinks[successor])
-                    elif on_stack[successor]:
-                        # Successor is in stack and hence in the current SCC
-                        lowlinks[node_id] = min(lowlinks[node_id], index[successor])
+                # Check if this node drives any connectors on this net
+                drives_net = any(conn.node_id == node_id for conn in net.connectors 
+                               if conn.node_id in self.nodes and 
+                               any(node_conn.id == conn.connector_id and not node_conn.is_input 
+                                   for node_conn in self.nodes[conn.node_id].connectors))
+                
+                if drives_net:
+                    # Find all receiving nodes on this net
+                    for conn in net.connectors:
+                        if conn.node_id in self.nodes and conn.node_id != node_id:
+                            node = self.nodes[conn.node_id]
+                            # Check if this connector is an input
+                            for node_conn in node.connectors:
+                                if node_conn.id == conn.connector_id and node_conn.is_input:
+                                    successor = conn.node_id
+                                    
+                                    if successor not in index:
+                                        # Successor has not been visited; recurse on it
+                                        strongconnect(successor)
+                                        lowlinks[node_id] = min(lowlinks[node_id], lowlinks[successor])
+                                    elif on_stack[successor]:
+                                        # Successor is in stack and hence in the current SCC
+                                        lowlinks[node_id] = min(lowlinks[node_id], index[successor])
+                                    break
             
             # If this node is a root node, pop the stack and print an SCC
             if lowlinks[node_id] == index[node_id]:
@@ -433,14 +521,29 @@ class GraphData:
                 feedback_components.append(scc)
                 self.logger.debug(f"Feedback loop detected: {scc}")
             elif len(scc) == 1:
-                # Check for self-loop
+                # Check for self-loop (node has both input and output connectors on same net)
                 node_id = next(iter(scc))
                 for net in self.nets.values():
-                    if net.from_node_id == node_id and net.to_node_id == node_id:
-                        has_feedback = True
-                        feedback_components.append(scc)
-                        self.logger.debug(f"Self-loop detected: {node_id}")
-                        break
+                    node_connectors = [conn for conn in net.connectors if conn.node_id == node_id]
+                    if len(node_connectors) >= 2:
+                        # Check if node has both input and output connectors on this net
+                        node = self.nodes[node_id]
+                        has_input = False
+                        has_output = False
+                        for net_conn in node_connectors:
+                            for node_conn in node.connectors:
+                                if node_conn.id == net_conn.connector_id:
+                                    if node_conn.is_input:
+                                        has_input = True
+                                    else:
+                                        has_output = True
+                                    break
+                        
+                        if has_input and has_output:
+                            has_feedback = True
+                            feedback_components.append(scc)
+                            self.logger.debug(f"Self-loop detected: {node_id}")
+                            break
         
         return feedback_components, has_feedback
     
@@ -503,18 +606,39 @@ class GraphData:
                 self.logger.debug(f"Skipping input node {node_id}: value={node.value}")
                 continue
             
-            # Collect input values for this node
+            # Collect input values for this node from all nets
             input_values = []
             for net in self.nets.values():
-                if net.to_node_id == node_id:
-                    source_node = self.nodes[net.from_node_id]
-                    
-                    if source_node.value is None:
-                        # This shouldn't happen with proper topological sorting
-                        raise ValueError(f"Source node {source_node.id} has no value when evaluating {node_id}")
-                    
-                    input_values.append(source_node.value)
-                    self.logger.debug(f"Input to {node_id} from {source_node.id}: {source_node.value}")
+                # Check if this node has input connectors on this net
+                receiving_nodes = self.get_receiving_nodes(net.id)
+                if node_id in receiving_nodes:
+                    # Get the net value from driving nodes
+                    driving_nodes = self.get_driving_nodes(net.id)
+                    if driving_nodes:
+                        # Use the first driving node's value (allowing conflicts for now)
+                        source_node = self.nodes[driving_nodes[0]]
+                        
+                        if source_node.value is None:
+                            # This shouldn't happen with proper topological sorting
+                            raise ValueError(f"Source node {source_node.id} has no value when evaluating {node_id}")
+                        
+                        input_values.append(source_node.value)
+                        self.logger.debug(f"Input to {node_id} from net {net.id} (driven by {source_node.id}): {source_node.value}")
+                        
+                        # Log conflicts if multiple drivers exist
+                        if len(driving_nodes) > 1:
+                            conflict_values = []
+                            for driver_id in driving_nodes:
+                                driver_node = self.nodes[driver_id]
+                                if driver_node.value is not None:
+                                    conflict_values.append((driver_id, driver_node.value))
+                            if len(set(val for _, val in conflict_values)) > 1:
+                                self.logger.warning(f"Net {net.id} has conflicting drivers: {conflict_values}")
+            
+            # Skip nodes that have no inputs connected (they remain undriven)
+            if not input_values:
+                self.logger.debug(f"Skipping node {node_id} ({node.node_type}): no inputs connected")
+                continue
             
             # Evaluate the node using the circuit evaluator
             try:
@@ -560,13 +684,19 @@ class GraphData:
                 if node.node_type == "input":
                     continue
                 
-                # Collect input values for this node
+                # Collect input values for this node from all nets
                 input_values = []
                 for net in self.nets.values():
-                    if net.to_node_id == node_id:
-                        source_node = self.nodes[net.from_node_id]
-                        if source_node.value is not None:
-                            input_values.append(source_node.value)
+                    # Check if this node has input connectors on this net
+                    receiving_nodes = self.get_receiving_nodes(net.id)
+                    if node_id in receiving_nodes:
+                        # Get the net value from driving nodes
+                        driving_nodes = self.get_driving_nodes(net.id)
+                        if driving_nodes:
+                            # Use the first driving node's value (allowing conflicts for now)
+                            source_node = self.nodes[driving_nodes[0]]
+                            if source_node.value is not None:
+                                input_values.append(source_node.value)
                 
                 # Only evaluate if we have all required inputs
                 if self._node_has_all_inputs(node_id, len(input_values)):
@@ -621,9 +751,12 @@ class GraphData:
         Returns:
             bool: True if all required inputs are available
         """
-        # Count expected inputs based on nets
-        expected_inputs = sum(1 for conn in self.nets.values() 
-                            if conn.to_node_id == node_id)
+        # Count expected inputs based on nets that have this node as a receiver
+        expected_inputs = 0
+        for net in self.nets.values():
+            receiving_nodes = self.get_receiving_nodes(net.id)
+            if node_id in receiving_nodes:
+                expected_inputs += 1
         
         return available_inputs >= expected_inputs
     
@@ -639,8 +772,14 @@ class GraphData:
                 - value: the logical value (True/False) 
                 - has_value: whether the net carries a valid value
         """
-        # Get the source node
-        source_node = self.nodes.get(net.from_node_id)
+        # Get all driving nodes (nodes with output connectors on this net)
+        driving_nodes = self.get_driving_nodes(net.id)
+        
+        if not driving_nodes:
+            return False, False
+        
+        # Use the first driving node's value (for now, allowing conflicts)
+        source_node = self.nodes.get(driving_nodes[0])
         if source_node is None:
             return False, False
         
@@ -947,6 +1086,87 @@ class GraphData:
         """Get the ID of the currently selected net"""
         return self.selected_net_id
     
+    def get_net_connectors(self, net_id: str) -> List[NetConnector]:
+        """Get all connectors on a specific net"""
+        if net_id not in self.nets:
+            return []
+        return self.nets[net_id].connectors.copy()
+    
+    def get_driving_nodes(self, net_id: str) -> List[str]:
+        """Get nodes with output connectors connected to this net"""
+        if net_id not in self.nets:
+            return []
+        
+        driving_nodes = []
+        net = self.nets[net_id]
+        for net_conn in net.connectors:
+            if net_conn.node_id in self.nodes:
+                node = self.nodes[net_conn.node_id]
+                # Find the connector on the node
+                for node_conn in node.connectors:
+                    if node_conn.id == net_conn.connector_id and not node_conn.is_input:
+                        driving_nodes.append(net_conn.node_id)
+                        break
+        return driving_nodes
+    
+    def get_receiving_nodes(self, net_id: str) -> List[str]:
+        """Get nodes with input connectors connected to this net"""
+        if net_id not in self.nets:
+            return []
+        
+        receiving_nodes = []
+        net = self.nets[net_id]
+        for net_conn in net.connectors:
+            if net_conn.node_id in self.nodes:
+                node = self.nodes[net_conn.node_id]
+                # Find the connector on the node
+                for node_conn in node.connectors:
+                    if node_conn.id == net_conn.connector_id and node_conn.is_input:
+                        receiving_nodes.append(net_conn.node_id)
+                        break
+        return receiving_nodes
+    
+    def add_connector_to_net(self, net_id: str, node_id: str, connector_id: str) -> bool:
+        """Add a connector to an existing net. Returns True if UI should be refreshed."""
+        if net_id not in self.nets:
+            self.logger.warning(f"Cannot add connector to non-existent net: {net_id}")
+            return False
+        
+        if node_id not in self.nodes:
+            self.logger.warning(f"Cannot add connector from non-existent node: {node_id}")
+            return False
+        
+        try:
+            self.nets[net_id].add_connector(node_id, connector_id)
+            self.logger.debug(f"Added connector {node_id}:{connector_id} to net {net_id}")
+            return True
+        except ValueError as e:
+            self.logger.warning(f"Failed to add connector to net: {e}")
+            return False
+    
+    def remove_connector_from_net(self, net_id: str, node_id: str, connector_id: str) -> bool:
+        """Remove a connector from a net. Returns True if UI should be refreshed."""
+        if net_id not in self.nets:
+            self.logger.warning(f"Cannot remove connector from non-existent net: {net_id}")
+            return False
+        
+        net = self.nets[net_id]
+        if net.remove_connector(node_id, connector_id):
+            self.logger.debug(f"Removed connector {node_id}:{connector_id} from net {net_id}")
+            
+            # If net becomes empty, remove it entirely
+            if not net.connectors:
+                del self.nets[net_id]
+                self.logger.debug(f"Removed empty net: {net_id}")
+                # Clear selection if this net was selected
+                if self.selected_net_id == net_id:
+                    self.selected_net_id = None
+            
+            return True
+        else:
+            self.logger.warning(f"Connector {node_id}:{connector_id} not found on net {net_id}")
+            return False
+    
     def calculate_movement_distance(self, start_x: float, start_y: float, end_x: float, end_y: float) -> float:
         """Calculate the distance between two points"""
         return math.sqrt((end_x - start_x) ** 2 + (end_y - start_y) ** 2)
@@ -957,16 +1177,32 @@ class GraphData:
             self.logger.warning(f"Cannot delete non-existent node: {node_id}")
             return False
         
-        # Find all nets that reference this node
+        # Find all nets that reference this node and handle them appropriately
         nets_to_delete = []
-        for net_id, net in self.nets.items():
-            if net.from_node_id == node_id or net.to_node_id == node_id:
-                nets_to_delete.append(net_id)
+        nets_to_modify = []
         
-        # Delete all nets that reference this node
+        for net_id, net in self.nets.items():
+            node_connectors = [conn for conn in net.connectors if conn.node_id == node_id]
+            if node_connectors:
+                remaining_connectors = len(net.connectors) - len(node_connectors)
+                if remaining_connectors < 2:
+                    # Net would have fewer than 2 connectors - delete it (needs at least 2 to be meaningful)
+                    nets_to_delete.append(net_id)
+                else:
+                    # Net would still have at least 2 connectors - just remove this node's connectors
+                    nets_to_modify.append((net_id, node_connectors))
+        
+        # Delete nets that would become empty
         for net_id in nets_to_delete:
             del self.nets[net_id]
             self.logger.debug(f"Cascade deleted net: {net_id}")
+        
+        # Modify nets by removing this node's connectors
+        for net_id, node_connectors in nets_to_modify:
+            net = self.nets[net_id]
+            for conn in node_connectors:
+                net.remove_connector(conn.node_id, conn.connector_id)
+            self.logger.debug(f"Removed {len(node_connectors)} connectors from net {net_id} for deleted node {node_id}")
         
         # Clean up selection state
         if self.selected_node_id == node_id:
@@ -1089,7 +1325,7 @@ class GraphData:
             net_id = f"net_{len(self.nets) + hash(net_id) % 1000}"
         
         # Create the net
-        net = Net(
+        net = Net.create_two_point(
             id=net_id,
             from_node_id=self.net_start_node_id,
             from_connector_id=self.net_start_connector_id,
@@ -1125,7 +1361,7 @@ class GraphData:
         if from_node_id not in self.nodes or to_node_id not in self.nodes:
             return False
         
-        # Can't connect a node to itself
+        # Can't connect a node to itself  
         if from_node_id == to_node_id:
             return False
         
@@ -1148,32 +1384,14 @@ class GraphData:
         if from_connector is None or to_connector is None:
             return False
         
-        # Net must be from output to input or input to output
-        if from_connector.is_input == to_connector.is_input:
-            return False
-        
-        # Check for duplicate nets
+        # Check if either connector is already connected to a net
         for net in self.nets.values():
-            if (net.from_node_id == from_node_id and net.from_connector_id == from_connector_id and
-                net.to_node_id == to_node_id and net.to_connector_id == to_connector_id):
+            # Check if from_connector already exists on any net
+            if net.has_connector(from_node_id, from_connector_id):
                 return False
-            # Also check reverse direction
-            if (net.from_node_id == to_node_id and net.from_connector_id == to_connector_id and
-                net.to_node_id == from_node_id and net.to_connector_id == from_connector_id):
+            # Check if to_connector already exists on any net  
+            if net.has_connector(to_node_id, to_connector_id):
                 return False
-        
-        # Input connectors can only have one incoming net
-        # Check if we're connecting TO an input connector that already has a net
-        if to_connector.is_input:
-            for net in self.nets.values():
-                if net.to_node_id == to_node_id and net.to_connector_id == to_connector_id:
-                    return False
-        
-        # If from_connector is input, check if it already has incoming net
-        if from_connector.is_input:
-            for net in self.nets.values():
-                if net.to_node_id == from_node_id and net.to_connector_id == from_connector_id:
-                    return False
         
         return True
     
@@ -1658,13 +1876,13 @@ def create_demo_graph() -> GraphData:
     
     # Add nets
     nets = [
-        Net("c1", "input_a", "out", "and_gate", "in1"),
-        Net("c2", "input_b", "out", "and_gate", "in2"),
-        Net("c3", "input_b", "out", "or_gate", "in1"),
-        Net("c4", "input_c", "out", "or_gate", "in2"),
-        Net("c5", "and_gate", "out", "not_gate", "in"),
-        Net("c6", "not_gate", "out", "output_a", "in"),
-        Net("c7", "or_gate", "out", "output_b", "in")
+        Net.create_two_point("c1", "input_a", "out", "and_gate", "in1"),
+        Net.create_two_point("c2", "input_b", "out", "and_gate", "in2"),
+        Net.create_two_point("c3", "input_b", "out", "or_gate", "in1"),
+        Net.create_two_point("c4", "input_c", "out", "or_gate", "in2"),
+        Net.create_two_point("c5", "and_gate", "out", "not_gate", "in"),
+        Net.create_two_point("c6", "not_gate", "out", "output_a", "in"),
+        Net.create_two_point("c7", "or_gate", "out", "output_b", "in")
     ]
     
     for net in nets:
@@ -1704,12 +1922,12 @@ def create_sr_nor_latch_demo() -> GraphData:
     # - NOR1 output (Q) feeds back to NOR2 input 2
     # - NOR2 output (Q̅) feeds back to NOR1 input 2
     nets = [
-        Net("c1", "reset", "out", "nor1", "in1"),    # R -> NOR1 (Q gate)
-        Net("c2", "set", "out", "nor2", "in1"),      # S -> NOR2 (Q̅ gate)
-        Net("c3", "nor1", "out", "nor2", "in2"),     # Q -> NOR2 (feedback)
-        Net("c4", "nor2", "out", "nor1", "in2"),     # Q̅ -> NOR1 (feedback)
-        Net("c5", "nor1", "out", "q", "in"),         # Q output
-        Net("c6", "nor2", "out", "q_not", "in")      # Q̅ output
+        Net.create_two_point("c1", "reset", "out", "nor1", "in1"),    # R -> NOR1 (Q gate)
+        Net.create_two_point("c2", "set", "out", "nor2", "in1"),      # S -> NOR2 (Q̅ gate)
+        Net.create_two_point("c3", "nor1", "out", "nor2", "in2"),     # Q -> NOR2 (feedback)
+        Net.create_two_point("c4", "nor2", "out", "nor1", "in2"),     # Q̅ -> NOR1 (feedback)
+        Net.create_two_point("c5", "nor1", "out", "q", "in"),         # Q output
+        Net.create_two_point("c6", "nor2", "out", "q_not", "in")      # Q̅ output
     ]
     
     for net in nets:

@@ -14,6 +14,7 @@ from logicsim.graph_data import (
     Connector,
     Node,
     Net,
+    NetConnector,
     GraphData,
     PointerState,
     create_demo_graph
@@ -360,9 +361,9 @@ class TestNode:
 class TestNet:
     """Test cases for the Net class"""
     
-    def test_net_creation(self):
-        """Test basic net creation"""
-        net = Net(
+    def test_net_creation_two_point(self):
+        """Test basic two-point net creation"""
+        net = Net.create_two_point(
             id="net1",
             from_node_id="node1",
             from_connector_id="out",
@@ -375,6 +376,294 @@ class TestNet:
         assert net.from_connector_id == "out"
         assert net.to_node_id == "node2"
         assert net.to_connector_id == "in"
+        assert len(net.connectors) == 2
+        assert net.connectors[0].node_id == "node1"
+        assert net.connectors[0].connector_id == "out"
+        assert net.connectors[1].node_id == "node2"
+        assert net.connectors[1].connector_id == "in"
+    
+    def test_net_creation_multi_point(self):
+        """Test multi-point net creation"""
+        connectors = [
+            ("node1", "out"),
+            ("node2", "in1"),
+            ("node3", "in2"),
+            ("node4", "in3")
+        ]
+        net = Net.create_multi_point("multi_net", connectors)
+        
+        assert net.id == "multi_net"
+        assert len(net.connectors) == 4
+        assert net.connectors[0].node_id == "node1"
+        assert net.connectors[0].connector_id == "out"
+        assert net.connectors[3].node_id == "node4"
+        assert net.connectors[3].connector_id == "in3"
+        
+        # Test backward compatibility properties
+        assert net.from_node_id == "node1"
+        assert net.from_connector_id == "out"
+        assert net.to_node_id == "node2"
+        assert net.to_connector_id == "in1"
+    
+    def test_net_add_connector(self):
+        """Test adding connectors to existing net"""
+        net = Net.create_two_point("net1", "node1", "out", "node2", "in")
+        
+        # Add a third connector
+        net.add_connector("node3", "in2")
+        assert len(net.connectors) == 3
+        assert net.has_connector("node3", "in2")
+        
+        # Try to add duplicate - should raise error
+        with pytest.raises(ValueError, match="already exists"):
+            net.add_connector("node1", "out")
+    
+    def test_net_remove_connector(self):
+        """Test removing connectors from net"""
+        net = Net.create_multi_point("net1", [("node1", "out"), ("node2", "in1"), ("node3", "in2")])
+        
+        # Remove existing connector
+        assert net.remove_connector("node2", "in1") == True
+        assert len(net.connectors) == 2
+        assert not net.has_connector("node2", "in1")
+        
+        # Try to remove non-existent connector
+        assert net.remove_connector("node5", "in") == False
+        assert len(net.connectors) == 2
+    
+    def test_net_has_connector(self):
+        """Test checking if net has specific connector"""
+        net = Net.create_two_point("net1", "node1", "out", "node2", "in")
+        
+        assert net.has_connector("node1", "out") == True
+        assert net.has_connector("node2", "in") == True
+        assert net.has_connector("node3", "in") == False
+        assert net.has_connector("node1", "in") == False
+    
+    def test_net_get_node_ids(self):
+        """Test getting unique node IDs from net"""
+        net = Net.create_multi_point("net1", [
+            ("node1", "out"),
+            ("node2", "in1"), 
+            ("node2", "in2"),  # Same node, different connector
+            ("node3", "in")
+        ])
+        
+        node_ids = net.get_node_ids()
+        assert node_ids == {"node1", "node2", "node3"}
+        assert len(node_ids) == 3
+    
+    def test_net_empty_validation(self):
+        """Test that empty nets are not allowed"""
+        with pytest.raises(ValueError, match="must have at least one connector"):
+            Net("empty_net", [])
+    
+    def test_netconnector_creation(self):
+        """Test NetConnector dataclass"""
+        connector = NetConnector("node1", "out")
+        assert connector.node_id == "node1"
+        assert connector.connector_id == "out"
+
+
+class TestMultiNodeNet:
+    """Test cases for multi-node net functionality"""
+    
+    def setup_method(self):
+        """Set up test fixtures for multi-node net tests"""
+        self.graph = GraphData()
+        
+        # Create test nodes: 1 output driver, 3 input receivers (fan-out scenario)
+        self.driver_node = Node.create("driver", NODE_REGISTRY.get_definition("input"), 50, 50, label="DRIVER")
+        self.receiver1 = Node.create("recv1", NODE_REGISTRY.get_definition("and"), 200, 50, label="AND1")
+        self.receiver2 = Node.create("recv2", NODE_REGISTRY.get_definition("or"), 200, 150, label="OR1") 
+        self.receiver3 = Node.create("recv3", NODE_REGISTRY.get_definition("not"), 200, 250, label="NOT1")
+        
+        # Add nodes to graph
+        self.graph.add_node(self.driver_node)
+        self.graph.add_node(self.receiver1)
+        self.graph.add_node(self.receiver2)
+        self.graph.add_node(self.receiver3)
+    
+    def test_create_fan_out_net(self):
+        """Test creating a net with one driver and multiple receivers (fan-out)"""
+        # Create a multi-point net: driver.out -> recv1.in1, recv2.in1, recv3.in
+        connectors = [
+            ("driver", "out"),      # Output connector (driver)
+            ("recv1", "in1"),       # Input connector (receiver)
+            ("recv2", "in1"),       # Input connector (receiver)
+            ("recv3", "in")         # Input connector (receiver)
+        ]
+        fan_out_net = Net.create_multi_point("fan_out", connectors)
+        
+        self.graph.add_net(fan_out_net)
+        
+        # Verify net structure
+        assert len(fan_out_net.connectors) == 4
+        assert fan_out_net.get_node_ids() == {"driver", "recv1", "recv2", "recv3"}
+        
+        # Verify helper methods work correctly
+        driving_nodes = self.graph.get_driving_nodes("fan_out")
+        receiving_nodes = self.graph.get_receiving_nodes("fan_out")
+        
+        assert driving_nodes == ["driver"]
+        assert set(receiving_nodes) == {"recv1", "recv2", "recv3"}
+    
+    def test_create_multiple_driver_net(self):
+        """Test creating a net with multiple drivers (conflict scenario)"""
+        # Add another input node as second driver
+        driver2 = Node.create("driver2", NODE_REGISTRY.get_definition("input"), 50, 150, label="DRIVER2")
+        self.graph.add_node(driver2)
+        
+        # Create net with two drivers and one receiver
+        connectors = [
+            ("driver", "out"),      # First driver
+            ("driver2", "out"),     # Second driver (conflict)
+            ("recv1", "in1")        # Single receiver
+        ]
+        conflict_net = Net.create_multi_point("conflict", connectors)
+        
+        self.graph.add_net(conflict_net)
+        
+        # Verify net structure
+        driving_nodes = self.graph.get_driving_nodes("conflict")
+        receiving_nodes = self.graph.get_receiving_nodes("conflict")
+        
+        assert len(driving_nodes) == 2
+        assert set(driving_nodes) == {"driver", "driver2"}
+        assert receiving_nodes == ["recv1"]
+    
+    def test_multi_node_net_simulation(self):
+        """Test simulation with multi-node nets"""
+        # Create a fan-out scenario: input drives three logic gates
+        connectors = [
+            ("driver", "out"),
+            ("recv1", "in1"),  # AND gate input 1
+            ("recv2", "in1"),  # OR gate input 1  
+            ("recv3", "in")    # NOT gate input
+        ]
+        fan_out_net = Net.create_multi_point("fan_out", connectors)
+        self.graph.add_net(fan_out_net)
+        
+        # Set driver input value
+        self.driver_node.value = True
+        
+        # Add second inputs to AND and OR gates to make them evaluable
+        input2 = Node.create("input2", NODE_REGISTRY.get_definition("input"), 50, 200, label="INPUT2")
+        self.graph.add_node(input2)
+        input2.value = False
+        
+        and_input2_net = Net.create_two_point("and_in2", "input2", "out", "recv1", "in2")
+        or_input2_net = Net.create_two_point("or_in2", "input2", "out", "recv2", "in2")
+        self.graph.add_net(and_input2_net)
+        self.graph.add_net(or_input2_net)
+        
+        # Run simulation
+        success = self.graph.simulate()
+        assert success
+        
+        # Verify results: 
+        # AND(True, False) = False
+        # OR(True, False) = True  
+        # NOT(True) = False
+        assert self.receiver1.value == False  # AND result
+        assert self.receiver2.value == True   # OR result
+        assert self.receiver3.value == False  # NOT result
+    
+    def test_multi_driver_conflict_simulation(self):
+        """Test simulation with conflicting drivers"""
+        # Add second driver
+        driver2 = Node.create("driver2", NODE_REGISTRY.get_definition("input"), 50, 150, label="DRIVER2")
+        self.graph.add_node(driver2)
+        
+        # Create net with conflicting drivers
+        connectors = [
+            ("driver", "out"),    # Driver 1: True
+            ("driver2", "out"),   # Driver 2: False (conflict)
+            ("recv3", "in")       # NOT gate input
+        ]
+        conflict_net = Net.create_multi_point("conflict", connectors)
+        self.graph.add_net(conflict_net)
+        
+        # Set conflicting values
+        self.driver_node.value = True
+        driver2.value = False
+        
+        # Simulation should still work (using first driver's value)
+        success = self.graph.simulate()
+        assert success
+        
+        # Should use first driver's value: NOT(True) = False
+        assert self.receiver3.value == False
+    
+    def test_net_helper_methods(self):
+        """Test helper methods for multi-node nets"""
+        # Create a complex net
+        connectors = [
+            ("driver", "out"),
+            ("recv1", "in1"),
+            ("recv2", "in1")
+        ]
+        test_net = Net.create_multi_point("test", connectors)
+        self.graph.add_net(test_net)
+        
+        # Test get_net_connectors
+        net_connectors = self.graph.get_net_connectors("test")
+        assert len(net_connectors) == 3
+        assert any(conn.node_id == "driver" and conn.connector_id == "out" for conn in net_connectors)
+        
+        # Test add_connector_to_net
+        success = self.graph.add_connector_to_net("test", "recv3", "in")
+        assert success
+        assert len(self.graph.nets["test"].connectors) == 4
+        
+        # Test remove_connector_from_net
+        success = self.graph.remove_connector_from_net("test", "recv2", "in1")
+        assert success
+        assert len(self.graph.nets["test"].connectors) == 3
+        
+        # Test with non-existent net
+        assert not self.graph.add_connector_to_net("nonexistent", "recv1", "in1")
+        assert not self.graph.remove_connector_from_net("nonexistent", "recv1", "in1")
+    
+    def test_delete_node_with_multi_connector_net(self):
+        """Test deleting a node that's connected to multi-connector nets"""
+        # Create net with multiple connectors
+        connectors = [
+            ("driver", "out"),
+            ("recv1", "in1"),
+            ("recv2", "in1"),
+            ("recv3", "in")
+        ]
+        multi_net = Net.create_multi_point("multi", connectors)
+        self.graph.add_net(multi_net)
+        
+        # Delete one of the receiver nodes
+        self.graph.delete_node("recv2")
+        
+        # Net should still exist but with fewer connectors
+        assert "multi" in self.graph.nets
+        net = self.graph.nets["multi"]
+        assert len(net.connectors) == 3
+        assert not net.has_connector("recv2", "in1")
+        assert net.has_connector("driver", "out")
+        assert net.has_connector("recv1", "in1")
+        assert net.has_connector("recv3", "in")
+        
+        # Delete the driver node
+        self.graph.delete_node("driver")
+        
+        # Net should still exist with remaining connectors
+        assert "multi" in self.graph.nets
+        net = self.graph.nets["multi"]
+        assert len(net.connectors) == 2
+        assert not net.has_connector("driver", "out")
+        
+        # Delete all remaining nodes - net should be removed
+        self.graph.delete_node("recv1")
+        self.graph.delete_node("recv3")
+        
+        # Net should be completely removed
+        assert "multi" not in self.graph.nets
 
 
 
@@ -392,7 +681,7 @@ class TestGraphData:
         self.output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 350.0, 90.0, label="OUT")
         
         # Create test net
-        self.net = Net("conn1", "input1", "out", "and1", "in1")
+        self.net = Net.create_two_point("conn1", "input1", "out", "and1", "in1")
     
     def test_graph_data_initialization(self):
         """Test GraphData initialization"""
@@ -432,7 +721,7 @@ class TestGraphData:
             
             assert "conn1" in self.graph.nets
             assert self.graph.nets["conn1"] == self.net
-            mock_logger.debug.assert_called_once_with("Added net: input1:out -> and1:in1")
+            mock_logger.debug.assert_called_once_with("Added net conn1 with connectors: [input1:out, and1:in1]")
     
     def test_set_input_value_valid_input_node(self):
         """Test setting value on a valid input node"""
@@ -1161,7 +1450,7 @@ class TestGraphDataMovement:
     def test_movement_with_net_updates(self):
         """Test that nets are properly updated when nodes move"""
         # Add a net between node1 and node2
-        net = Net("conn1", "node1", "out", "node2", "in1")
+        net = Net.create_two_point("conn1", "node1", "out", "node2", "in1")
         self.graph.add_net(net)
         
         # Get initial net position
@@ -1632,8 +1921,8 @@ class TestGraphDataNetSelection:
         self.graph.add_node(output_node)
         
         # Add test nets
-        self.net1 = Net("c1", "input1", "out", "and1", "in1")
-        self.net2 = Net("c2", "and1", "out", "output1", "in")
+        self.net1 = Net.create_two_point("c1", "input1", "out", "and1", "in1")
+        self.net2 = Net.create_two_point("c2", "and1", "out", "output1", "in")
         self.graph.add_net(self.net1)
         self.graph.add_net(self.net2)
     
@@ -1850,7 +2139,7 @@ class TestGraphDataNetSelection:
         """Test net hit-testing edge cases"""
         # Test with zero-length line (degenerate case)
         # This shouldn't happen in practice but tests the math
-        fake_net = Net("test", "input1", "out", "input1", "out")
+        fake_net = Net.create_two_point("test", "input1", "out", "input1", "out")
         
         # Point at same location should hit
         assert self.graph.is_point_on_net(fake_net, 99, 74, tolerance=1.0)
@@ -1879,9 +2168,9 @@ class TestGraphDataDeletion:
         self.graph.add_node(output_node)
         
         # Add test nets
-        self.net1 = Net("c1", "input1", "out", "and1", "in1")
-        self.net2 = Net("c2", "and1", "out", "output1", "in")
-        self.net3 = Net("c3", "input1", "out", "or1", "in1")
+        self.net1 = Net.create_two_point("c1", "input1", "out", "and1", "in1")
+        self.net2 = Net.create_two_point("c2", "and1", "out", "output1", "in")
+        self.net3 = Net.create_two_point("c3", "input1", "out", "or1", "in1")
         self.graph.add_net(self.net1)
         self.graph.add_net(self.net2)
         self.graph.add_net(self.net3)
@@ -2312,9 +2601,9 @@ class TestGraphDataNetCreation:
         assert result == False
     
     def test_can_create_net_output_to_output(self):
-        """Test invalid net from output to output"""
+        """Test that output to output nets are now allowed (directionality removed)"""
         result = self.graph.can_create_net("input1", "out", "and1", "out")
-        assert result == False
+        assert result == True  # Multi-connector nets allow any connector combinations
     
     def test_can_create_net_input_to_input(self):
         """Test invalid net from input to input"""
@@ -2324,7 +2613,7 @@ class TestGraphDataNetCreation:
     def test_can_create_net_duplicate(self):
         """Test preventing duplicate nets"""
         # Create initial net
-        net = Net("c1", "input1", "out", "and1", "in1")
+        net = Net.create_two_point("c1", "input1", "out", "and1", "in1")
         self.graph.add_net(net)
         
         # Try to create same net again
@@ -2338,7 +2627,7 @@ class TestGraphDataNetCreation:
     def test_can_create_net_input_already_connected(self):
         """Test preventing multiple nets to same input"""
         # Create initial net to and gate input
-        net = Net("c1", "input1", "out", "and1", "in1")
+        net = Net.create_two_point("c1", "input1", "out", "and1", "in1")
         self.graph.add_net(net)
         
         # Try to connect another output to same input
@@ -2755,8 +3044,8 @@ class TestCircuitSimulation:
         self.graph.add_node(self.output)
         
         # Connect: A -> NOT -> OUT
-        self.conn1 = Net("c1", "input_a", "out", "not_gate", "in")
-        self.conn2 = Net("c2", "not_gate", "out", "output", "in")
+        self.conn1 = Net.create_two_point("c1", "input_a", "out", "not_gate", "in")
+        self.conn2 = Net.create_two_point("c2", "not_gate", "out", "output", "in")
         
         self.graph.add_net(self.conn1)
         self.graph.add_net(self.conn2)
@@ -2816,11 +3105,11 @@ class TestCircuitSimulation:
         
         # Create nets: A -> AND, B -> AND, AND -> OR, C -> OR, OR -> OUT
         nets = [
-            Net("c1", "a", "out", "and", "in1"),
-            Net("c2", "b", "out", "and", "in2"),
-            Net("c3", "and", "out", "or", "in1"),
-            Net("c4", "c", "out", "or", "in2"),
-            Net("c5", "or", "out", "out", "in")
+            Net.create_two_point("c1", "a", "out", "and", "in1"),
+            Net.create_two_point("c2", "b", "out", "and", "in2"),
+            Net.create_two_point("c3", "and", "out", "or", "in1"),
+            Net.create_two_point("c4", "c", "out", "or", "in2"),
+            Net.create_two_point("c5", "or", "out", "out", "in")
         ]
         
         for conn in nets:
@@ -2901,14 +3190,14 @@ class TestCircuitSimulation:
         
         # Nets: A,B -> AND -> NOT, C,D -> OR, NOT,OR -> final_or -> out
         nets = [
-            Net("c1", "a", "out", "and", "in1"),
-            Net("c2", "b", "out", "and", "in2"),
-            Net("c3", "and", "out", "not", "in"),
-            Net("c4", "c", "out", "or", "in1"),
-            Net("c5", "d", "out", "or", "in2"),
-            Net("c6", "not", "out", "final_or", "in1"),
-            Net("c7", "or", "out", "final_or", "in2"),
-            Net("c8", "final_or", "out", "out", "in")
+            Net.create_two_point("c1", "a", "out", "and", "in1"),
+            Net.create_two_point("c2", "b", "out", "and", "in2"),
+            Net.create_two_point("c3", "and", "out", "not", "in"),
+            Net.create_two_point("c4", "c", "out", "or", "in1"),
+            Net.create_two_point("c5", "d", "out", "or", "in2"),
+            Net.create_two_point("c6", "not", "out", "final_or", "in1"),
+            Net.create_two_point("c7", "or", "out", "final_or", "in2"),
+            Net.create_two_point("c8", "final_or", "out", "out", "in")
         ]
         
         for conn in nets:
@@ -2948,9 +3237,9 @@ class TestCircuitSimulation:
         
         # Create circular nets
         nets = [
-            Net("c1", "a", "out", "b", "in"),
-            Net("c2", "b", "out", "c", "in"),
-            Net("c3", "c", "out", "a", "in")  # This creates the cycle
+            Net.create_two_point("c1", "a", "out", "b", "in"),
+            Net.create_two_point("c2", "b", "out", "c", "in"),
+            Net.create_two_point("c3", "c", "out", "a", "in")  # This creates the cycle
         ]
         
         for conn in nets:
@@ -3055,8 +3344,8 @@ class TestCircuitSimulation:
         graph.add_node(input_b) 
         graph.add_node(and_gate)
         
-        graph.add_net(Net("c1", "a", "out", "and", "in1"))
-        graph.add_net(Net("c2", "b", "out", "and", "in2"))
+        graph.add_net(Net.create_two_point("c1", "a", "out", "and", "in1"))
+        graph.add_net(Net.create_two_point("c2", "b", "out", "and", "in2"))
         
         # Set only one input
         graph.set_input_value("a", True)
@@ -3085,9 +3374,9 @@ class TestUIInteraction:
         self.graph.add_node(self.output)
         
         # Connect: A,B -> AND -> OUT
-        self.graph.add_net(Net("c1", "input_a", "out", "and_gate", "in1"))
-        self.graph.add_net(Net("c2", "input_b", "out", "and_gate", "in2"))
-        self.graph.add_net(Net("c3", "and_gate", "out", "output", "in"))
+        self.graph.add_net(Net.create_two_point("c1", "input_a", "out", "and_gate", "in1"))
+        self.graph.add_net(Net.create_two_point("c2", "input_b", "out", "and_gate", "in2"))
+        self.graph.add_net(Net.create_two_point("c3", "and_gate", "out", "output", "in"))
     
     def test_toggle_input_node_cycle(self):
         """Test that input node toggling cycles through None -> True -> False -> None"""
@@ -3310,9 +3599,9 @@ class TestModeBasedSimulation:
         self.graph.add_node(output_node)
         
         # Create nets
-        conn1 = Net("c1", "input1", "out", "and1", "in1")
-        conn2 = Net("c2", "input2", "out", "and1", "in2")
-        conn3 = Net("c3", "and1", "out", "output1", "in")
+        conn1 = Net.create_two_point("c1", "input1", "out", "and1", "in1")
+        conn2 = Net.create_two_point("c2", "input2", "out", "and1", "in2")
+        conn3 = Net.create_two_point("c3", "and1", "out", "output1", "in")
         
         self.graph.add_net(conn1)
         self.graph.add_net(conn2)
@@ -3767,7 +4056,7 @@ class TestFeedbackLoops:
     def test_combinational_circuit_still_works(self):
         """Test that combinational circuits still work with new system"""
         # Create a simple combinational circuit (no feedback)
-        from logicsim.graph_data import GraphData, Node, Net, NODE_REGISTRY
+        from logicsim.graph_data import GraphData, Node, Net, NetConnector, NODE_REGISTRY
         
         graph = GraphData()
         
@@ -3781,9 +4070,9 @@ class TestFeedbackLoops:
         graph.add_node(output_node)
         
         # Add net
-        conn = Net("c1", "input1", "out", "not1", "in")
+        conn = Net.create_two_point("c1", "input1", "out", "not1", "in")
         graph.add_net(conn)
-        conn2 = Net("c2", "not1", "out", "output1", "in")
+        conn2 = Net.create_two_point("c2", "not1", "out", "output1", "in")
         graph.add_net(conn2)
         
         # Test simulation
@@ -3814,8 +4103,8 @@ class TestNetValueVisualization:
         self.graph.add_node(output_node)
         
         # Add nets
-        conn1 = Net("c1", "input1", "out", "not1", "in")
-        conn2 = Net("c2", "not1", "out", "output1", "in")
+        conn1 = Net.create_two_point("c1", "input1", "out", "not1", "in")
+        conn2 = Net.create_two_point("c2", "not1", "out", "output1", "in")
         self.graph.add_net(conn1)
         self.graph.add_net(conn2)
     
@@ -3865,22 +4154,22 @@ class TestNetValueVisualization:
         assert value == False
         assert has_value == False
     
-    def test_get_net_value_output_node(self):
-        """Test _get_net_value for output node nets (though they have no outputs)"""
-        # Set value on output node
-        self.graph.nodes["output1"].value = True
+    def test_get_net_value_net_to_output_node(self):
+        """Test _get_net_value for net that connects TO an output node"""
+        # Set value on NOT gate (which drives the output)
+        self.graph.nodes["not1"].value = False
         
-        # Create a hypothetical net from output node for testing
-        test_conn = Net("test", "output1", "out", "not1", "in")
-        value, has_value = self.graph._get_net_value(test_conn)
+        # Test the existing net TO the output node (c2: not1 -> output1)
+        net = self.graph.nets["c2"]
+        value, has_value = self.graph._get_net_value(net)
         
-        assert value == True
+        assert value == False
         assert has_value == True
     
     def test_get_net_value_nonexistent_node(self):
         """Test _get_net_value for net with nonexistent source node"""
         # Create net with invalid source node
-        invalid_conn = Net("invalid", "nonexistent", "out", "not1", "in")
+        invalid_conn = Net.create_two_point("invalid", "nonexistent", "out", "not1", "in")
         value, has_value = self.graph._get_net_value(invalid_conn)
         
         assert value == False
@@ -3893,7 +4182,7 @@ class TestNetValueVisualization:
         self.graph.add_node(unknown_node)
         
         # Create net from unknown node
-        unknown_conn = Net("unknown_c", "unknown1", "out", "not1", "in")
+        unknown_conn = Net.create_two_point("unknown_c", "unknown1", "out", "not1", "in")
         value, has_value = self.graph._get_net_value(unknown_conn)
         
         assert value == False
@@ -3905,7 +4194,8 @@ class TestNetValueVisualization:
         and_node = Node.create("and1", NODE_REGISTRY.get_definition("and"), 300, 50)
         and_node.value = True
         self.graph.add_node(and_node)
-        and_conn = Net("and_c", "and1", "out", "output1", "in")
+        and_conn = Net.create_two_point("and_c", "and1", "out", "output1", "in")
+        self.graph.add_net(and_conn)
         value, has_value = self.graph._get_net_value(and_conn)
         assert value == True and has_value == True
         
@@ -3913,7 +4203,8 @@ class TestNetValueVisualization:
         or_node = Node.create("or1", NODE_REGISTRY.get_definition("or"), 300, 100)
         or_node.value = False
         self.graph.add_node(or_node)
-        or_conn = Net("or_c", "or1", "out", "output1", "in")
+        or_conn = Net.create_two_point("or_c", "or1", "out", "output1", "in")
+        self.graph.add_net(or_conn)
         value, has_value = self.graph._get_net_value(or_conn)
         assert value == False and has_value == True
         
@@ -3921,7 +4212,8 @@ class TestNetValueVisualization:
         nor_node = Node.create("nor1", NODE_REGISTRY.get_definition("nor"), 300, 150)
         nor_node.value = True
         self.graph.add_node(nor_node)
-        nor_conn = Net("nor_c", "nor1", "out", "output1", "in")
+        nor_conn = Net.create_two_point("nor_c", "nor1", "out", "output1", "in")
+        self.graph.add_net(nor_conn)
         value, has_value = self.graph._get_net_value(nor_conn)
         assert value == True and has_value == True
     
@@ -4084,14 +4376,14 @@ class TestNetValueVisualization:
         
         # Add nets
         nets = [
-            Net("c1", "input_a", "out", "and1", "in1"),
-            Net("c2", "input_b", "out", "and1", "in2"),
-            Net("c3", "and1", "out", "or1", "in1"),
-            Net("c4", "input_a", "out", "or1", "in2"),
-            Net("c5", "or1", "out", "not1", "in"),
-            Net("c6", "not1", "out", "nor1", "in1"),
-            Net("c7", "input_b", "out", "nor1", "in2"),
-            Net("c8", "nor1", "out", "output1", "in")
+            Net.create_two_point("c1", "input_a", "out", "and1", "in1"),
+            Net.create_two_point("c2", "input_b", "out", "and1", "in2"),
+            Net.create_two_point("c3", "and1", "out", "or1", "in1"),
+            Net.create_two_point("c4", "input_a", "out", "or1", "in2"),
+            Net.create_two_point("c5", "or1", "out", "not1", "in"),
+            Net.create_two_point("c6", "not1", "out", "nor1", "in1"),
+            Net.create_two_point("c7", "input_b", "out", "nor1", "in2"),
+            Net.create_two_point("c8", "nor1", "out", "output1", "in")
         ]
         
         for conn in nets:
