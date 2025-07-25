@@ -10,7 +10,7 @@ import logging
 import time
 import slint
 from pathlib import Path
-from logicsim.graph_data import create_demo_graph
+from logicsim.graph_data import create_sr_nor_latch_demo
 
 
 def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -189,8 +189,8 @@ def main():
         main_window = ui.MainWindow()
         
         # Create and set up graph data
-        logger.info("Creating demo graph data")
-        graph = create_demo_graph()
+        logger.info("Creating SR NOR latch demo graph data")
+        graph = create_sr_nor_latch_demo()
         graph_data = graph.to_slint_format()
         
         # Connect the pointer event callback

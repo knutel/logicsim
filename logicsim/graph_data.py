@@ -3,7 +3,7 @@ Graph data structures and management for LogicSim
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set, Tuple
 from enum import Enum
 from collections import deque
 import logging
@@ -173,6 +173,20 @@ class NodeDefinitionRegistry:
                 ConnectorDefinition("out", 1.0, 0.5, False)  # Right side, center
             ]
         )
+        
+        # NOR gate: two inputs on left, one output on right
+        self.definitions["nor"] = NodeDefinition(
+            name="nor",
+            label="NOR",
+            default_width=80.0,
+            default_height=60.0,
+            color="rgb(255, 160, 160)",  # Light red to distinguish from OR
+            connectors=[
+                ConnectorDefinition("in1", 0.0, 0.25, True),  # Left side, upper
+                ConnectorDefinition("in2", 0.0, 0.75, True),  # Left side, lower
+                ConnectorDefinition("out", 1.0, 0.5, False)   # Right side, center
+            ]
+        )
     
     def get_definition(self, name: str) -> NodeDefinition:
         """Get a node definition by name"""
@@ -230,6 +244,10 @@ class GraphData:
         
         # Simulation mode state tracking
         self.simulation_mode: bool = False  # False = Edit Mode, True = Simulation Mode
+        
+        # Feedback simulation configuration
+        self.max_simulation_iterations: int = 100  # Maximum iterations for convergence
+        self.convergence_tolerance: int = 3  # Stable iterations required for convergence
         
         self.logger = logging.getLogger(__name__)
         
@@ -341,15 +359,101 @@ class GraphData:
         self.logger.debug(f"Node evaluation order: {evaluation_order}")
         return evaluation_order
     
+    def _tarjan_scc(self) -> List[Set[str]]:
+        """
+        Find strongly connected components using Tarjan's algorithm.
+        
+        Returns:
+            List[Set[str]]: List of strongly connected components (sets of node IDs)
+        """
+        # Tarjan's algorithm state
+        index_counter = [0]  # Use list to allow modification in nested function
+        stack = []
+        lowlinks = {}
+        index = {}
+        on_stack = {}
+        sccs = []
+        
+        def strongconnect(node_id: str):
+            # Set the depth index for this node to the smallest unused index
+            index[node_id] = index_counter[0]
+            lowlinks[node_id] = index_counter[0]
+            index_counter[0] += 1
+            stack.append(node_id)
+            on_stack[node_id] = True
+            
+            # Consider successors of this node
+            for connection in self.connections.values():
+                if connection.from_node_id == node_id:
+                    successor = connection.to_node_id
+                    
+                    if successor not in index:
+                        # Successor has not been visited; recurse on it
+                        strongconnect(successor)
+                        lowlinks[node_id] = min(lowlinks[node_id], lowlinks[successor])
+                    elif on_stack[successor]:
+                        # Successor is in stack and hence in the current SCC
+                        lowlinks[node_id] = min(lowlinks[node_id], index[successor])
+            
+            # If this node is a root node, pop the stack and print an SCC
+            if lowlinks[node_id] == index[node_id]:
+                scc = set()
+                while True:
+                    w = stack.pop()
+                    on_stack[w] = False
+                    scc.add(w)
+                    if w == node_id:
+                        break
+                sccs.append(scc)
+        
+        # Initialize all nodes as unvisited
+        for node_id in self.nodes:
+            if node_id not in index:
+                strongconnect(node_id)
+        
+        return sccs
+    
+    def _detect_feedback_loops(self) -> Tuple[List[Set[str]], bool]:
+        """
+        Detect feedback loops in the circuit using strongly connected components.
+        
+        Returns:
+            Tuple[List[Set[str]], bool]: (list of SCCs, has_feedback_loops flag)
+                - SCCs with more than one node represent feedback loops
+                - Single-node SCCs with self-loops also represent feedback loops
+        """
+        sccs = self._tarjan_scc()
+        has_feedback = False
+        feedback_components = []
+        
+        for scc in sccs:
+            if len(scc) > 1:
+                # Multi-node SCC is definitely a feedback loop
+                has_feedback = True
+                feedback_components.append(scc)
+                self.logger.debug(f"Feedback loop detected: {scc}")
+            elif len(scc) == 1:
+                # Check for self-loop
+                node_id = next(iter(scc))
+                for connection in self.connections.values():
+                    if connection.from_node_id == node_id and connection.to_node_id == node_id:
+                        has_feedback = True
+                        feedback_components.append(scc)
+                        self.logger.debug(f"Self-loop detected: {node_id}")
+                        break
+        
+        return feedback_components, has_feedback
+    
     def simulate(self) -> bool:
         """
-        Simulate the entire circuit by evaluating all nodes in proper dependency order.
+        Simulate the entire circuit, handling both combinational and sequential circuits.
+        For circuits with feedback loops, uses iterative simulation until convergence.
         
         Returns:
             bool: True if simulation succeeded, False if there were errors
             
         Raises:
-            ValueError: If input nodes have no values set or circular dependencies exist
+            ValueError: If input nodes have no values set or simulation fails to converge
         """
         self.logger.info("Starting circuit simulation")
         
@@ -360,6 +464,23 @@ class GraphData:
         if unset_inputs:
             raise ValueError(f"Input nodes must have values set before simulation: {unset_inputs}")
         
+        # Detect feedback loops
+        feedback_components, has_feedback = self._detect_feedback_loops()
+        
+        if has_feedback:
+            self.logger.info(f"Feedback loops detected, using iterative simulation")
+            return self._simulate_iterative(feedback_components)
+        else:
+            self.logger.info("No feedback loops detected, using single-pass simulation")
+            return self._simulate_combinational()
+    
+    def _simulate_combinational(self) -> bool:
+        """
+        Simulate combinational circuit using topological sorting (original method).
+        
+        Returns:
+            bool: True if simulation succeeded
+        """
         # Get evaluation order using topological sorting
         try:
             evaluation_order = self._get_evaluation_order()
@@ -405,8 +526,106 @@ class GraphData:
                 self.logger.error(f"Failed to evaluate node {node_id}: {e}")
                 raise ValueError(f"Evaluation failed for node {node_id}: {e}")
         
-        self.logger.info(f"Circuit simulation completed: evaluated {evaluated_count} nodes")
+        self.logger.info(f"Combinational simulation completed: evaluated {evaluated_count} nodes")
         return True
+    
+    def _simulate_iterative(self, feedback_components: List[Set[str]]) -> bool:
+        """
+        Simulate sequential circuit using iterative evaluation until convergence.
+        
+        Args:
+            feedback_components: List of strongly connected components (feedback loops)
+            
+        Returns:
+            bool: True if simulation converged, raises ValueError if not
+        """
+        # Initialize feedback nodes if they don't have values
+        self._initialize_feedback_nodes(feedback_components)
+        
+        # Store previous states for convergence detection
+        previous_states = {}
+        stable_iterations = 0
+        
+        for iteration in range(self.max_simulation_iterations):
+            self.logger.debug(f"Simulation iteration {iteration + 1}")
+            
+            # Store current state
+            current_state = {}
+            for node_id, node in self.nodes.items():
+                if node.node_type != "input":
+                    current_state[node_id] = node.value
+            
+            # Evaluate all non-input nodes
+            for node_id, node in self.nodes.items():
+                if node.node_type == "input":
+                    continue
+                
+                # Collect input values for this node
+                input_values = []
+                for connection in self.connections.values():
+                    if connection.to_node_id == node_id:
+                        source_node = self.nodes[connection.from_node_id]
+                        if source_node.value is not None:
+                            input_values.append(source_node.value)
+                
+                # Only evaluate if we have all required inputs
+                if self._node_has_all_inputs(node_id, len(input_values)):
+                    try:
+                        new_value = self.evaluator.evaluate_node(node, input_values)
+                        if node.value != new_value:
+                            node.value = new_value
+                            self.logger.debug(f"Iter {iteration + 1}: {node_id} -> {new_value}")
+                    except ValueError as e:
+                        self.logger.error(f"Failed to evaluate node {node_id}: {e}")
+                        raise ValueError(f"Evaluation failed for node {node_id}: {e}")
+            
+            # Check for convergence by comparing with previous iteration
+            if iteration > 0 and current_state == previous_states.get(iteration - 1, {}):
+                stable_iterations += 1
+                if stable_iterations >= self.convergence_tolerance:
+                    self.logger.info(f"Circuit converged after {iteration + 1} iterations")
+                    return True
+            else:
+                stable_iterations = 0
+            
+            # Store state for next iteration
+            previous_states[iteration] = current_state.copy()
+        
+        # Did not converge within maximum iterations
+        self.logger.warning(f"Circuit did not converge after {self.max_simulation_iterations} iterations")
+        raise ValueError(f"Circuit simulation did not converge after {self.max_simulation_iterations} iterations")
+    
+    def _initialize_feedback_nodes(self, feedback_components: List[Set[str]]) -> None:
+        """
+        Initialize nodes in feedback loops with default values if they are None.
+        
+        Args:
+            feedback_components: List of feedback loop node sets
+        """
+        for component in feedback_components:
+            for node_id in component:
+                node = self.nodes[node_id]
+                if node.node_type != "input" and node.value is None:
+                    # Initialize with False (power-on reset state)
+                    node.value = False
+                    self.logger.debug(f"Initialized feedback node {node_id} to False")
+    
+    def _node_has_all_inputs(self, node_id: str, available_inputs: int) -> bool:
+        """
+        Check if a node has all its required inputs available.
+        
+        Args:
+            node_id: ID of the node to check
+            available_inputs: Number of available input values
+            
+        Returns:
+            bool: True if all required inputs are available
+        """
+        # Count expected inputs based on connections
+        expected_inputs = sum(1 for conn in self.connections.values() 
+                            if conn.to_node_id == node_id)
+        
+        return available_inputs >= expected_inputs
     
     def reset_simulation(self) -> bool:
         """
@@ -479,6 +698,7 @@ class GraphData:
     def enter_simulation_mode(self) -> bool:
         """
         Enter simulation mode. Initialize all input nodes with False value and disable editing.
+        For sequential circuits, initialize feedback nodes to power-on reset state.
         
         Returns:
             bool: True if UI should be refreshed
@@ -495,6 +715,22 @@ class GraphData:
             if node.node_type == "input":
                 node.value = False
                 self.logger.debug(f"Set input node '{node.id}' to default value: False")
+        
+        # Detect feedback loops and initialize sequential circuit state
+        feedback_components, has_feedback = self._detect_feedback_loops()
+        if has_feedback:
+            self.logger.info("Sequential circuit detected, initializing feedback nodes")
+            # Clear all non-input nodes to None, then initialize feedback nodes
+            for node in self.nodes.values():
+                if node.node_type != "input":
+                    node.value = None
+            # Initialize feedback nodes to False (power-on reset)
+            self._initialize_feedback_nodes(feedback_components)
+        else:
+            # For combinational circuits, clear all non-input nodes
+            for node in self.nodes.values():
+                if node.node_type != "input":
+                    node.value = None
         
         # Clear any active editing states
         if self.editing_node_id is not None:
@@ -1384,6 +1620,51 @@ def create_demo_graph() -> GraphData:
         Connection("c5", "and_gate", "out", "not_gate", "in"),
         Connection("c6", "not_gate", "out", "output_a", "in"),
         Connection("c7", "or_gate", "out", "output_b", "in")
+    ]
+    
+    for conn in connections:
+        graph.add_connection(conn)
+    
+    return graph
+
+
+def create_sr_nor_latch_demo() -> GraphData:
+    """Create a demonstration SR NOR latch circuit with feedback"""
+    graph = GraphData()
+    
+    # Create input nodes (S and R)
+    input_s = Node.create("set", NODE_REGISTRY.get_definition("input"), 50, 100)
+    input_r = Node.create("reset", NODE_REGISTRY.get_definition("input"), 50, 200)
+    
+    # Create NOR gates
+    nor_gate_1 = Node.create("nor1", NODE_REGISTRY.get_definition("nor"), 200, 100)
+    nor_gate_2 = Node.create("nor2", NODE_REGISTRY.get_definition("nor"), 200, 200)
+    
+    # Create output nodes (Q and Q̅)
+    output_q = Node.create("q", NODE_REGISTRY.get_definition("output"), 350, 100)
+    output_q_not = Node.create("q_not", NODE_REGISTRY.get_definition("output"), 350, 200)
+    
+    # Add nodes to graph
+    graph.add_node(input_s)
+    graph.add_node(input_r)
+    graph.add_node(nor_gate_1)
+    graph.add_node(nor_gate_2)
+    graph.add_node(output_q)
+    graph.add_node(output_q_not)
+    
+    # Add connections for SR NOR latch
+    # The feedback connections create the latch behavior:
+    # - R input goes to NOR1 input 1 (NOR1 produces Q)
+    # - S input goes to NOR2 input 1 (NOR2 produces Q̅)
+    # - NOR1 output (Q) feeds back to NOR2 input 2
+    # - NOR2 output (Q̅) feeds back to NOR1 input 2
+    connections = [
+        Connection("c1", "reset", "out", "nor1", "in1"),    # R -> NOR1 (Q gate)
+        Connection("c2", "set", "out", "nor2", "in1"),      # S -> NOR2 (Q̅ gate)
+        Connection("c3", "nor1", "out", "nor2", "in2"),     # Q -> NOR2 (feedback)
+        Connection("c4", "nor2", "out", "nor1", "in2"),     # Q̅ -> NOR1 (feedback)
+        Connection("c5", "nor1", "out", "q", "in"),         # Q output
+        Connection("c6", "nor2", "out", "q_not", "in")      # Q̅ output
     ]
     
     for conn in connections:

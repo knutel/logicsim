@@ -3037,7 +3037,7 @@ class TestCircuitSimulation:
             
             # Verify logging calls were made
             mock_logger.info.assert_any_call("Starting circuit simulation")
-            mock_logger.info.assert_any_call("Circuit simulation completed: evaluated 2 nodes")
+            mock_logger.info.assert_any_call("Combinational simulation completed: evaluated 2 nodes")
             
             # Verify debug logging for evaluation
             mock_logger.debug.assert_any_call("Node evaluation order: ['input_a', 'not_gate', 'output']")
@@ -3588,3 +3588,210 @@ class TestModeBasedSimulation:
         assert self.graph.get_node_value("input2") == None
         assert self.graph.get_node_value("and1") == None
         assert self.graph.get_node_value("output1") == None
+
+
+class TestFeedbackLoops:
+    """Test cases for feedback loop detection and sequential circuit simulation"""
+    
+    def setup_method(self):
+        """Set up test SR NOR latch for each test"""
+        from logicsim.graph_data import create_sr_nor_latch_demo
+        self.graph = create_sr_nor_latch_demo()
+    
+    def test_tarjan_scc_detection(self):
+        """Test Tarjan's strongly connected components algorithm"""
+        sccs = self.graph._tarjan_scc()
+        
+        # Should find strongly connected components
+        assert len(sccs) > 0
+        
+        # The feedback between nor1 and nor2 should create an SCC
+        feedback_scc = None
+        for scc in sccs:
+            if "nor1" in scc and "nor2" in scc:
+                feedback_scc = scc
+                break
+        
+        assert feedback_scc is not None
+        assert "nor1" in feedback_scc
+        assert "nor2" in feedback_scc
+    
+    def test_feedback_loop_detection(self):
+        """Test detection of feedback loops in circuit"""
+        feedback_components, has_feedback = self.graph._detect_feedback_loops()
+        
+        assert has_feedback == True
+        assert len(feedback_components) > 0
+        
+        # Should detect the NOR gate feedback loop
+        nor_feedback = None
+        for component in feedback_components:
+            if "nor1" in component and "nor2" in component:
+                nor_feedback = component
+                break
+        
+        assert nor_feedback is not None
+        assert "nor1" in nor_feedback
+        assert "nor2" in nor_feedback
+    
+    def test_initialize_feedback_nodes(self):
+        """Test initialization of feedback nodes to power-on reset state"""
+        # Clear all values first
+        for node in self.graph.nodes.values():
+            node.value = None
+        
+        feedback_components, _ = self.graph._detect_feedback_loops()
+        self.graph._initialize_feedback_nodes(feedback_components)
+        
+        # Feedback nodes should be initialized to False
+        assert self.graph.get_node_value("nor1") == False
+        assert self.graph.get_node_value("nor2") == False
+        
+        # Input and output nodes should remain None
+        assert self.graph.get_node_value("set") == None
+        assert self.graph.get_node_value("reset") == None
+        assert self.graph.get_node_value("q") == None
+        assert self.graph.get_node_value("q_not") == None
+    
+    def test_sr_latch_simulation_iterative(self):
+        """Test iterative simulation of SR NOR latch"""
+        # Enter simulation mode to initialize
+        self.graph.enter_simulation_mode()
+        
+        # Verify feedback loops are detected
+        feedback_components, has_feedback = self.graph._detect_feedback_loops()
+        assert has_feedback == True
+        
+        # Set S=0, R=0 (hold state)
+        self.graph.set_input_value("set", False)
+        self.graph.set_input_value("reset", False)
+        
+        # Run simulation
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Should converge to a stable state
+        # With both inputs False and power-on reset (both NORs start False)
+        # The circuit should settle to Q=True, Q̅=False
+        assert self.graph.get_node_value("q") == True
+        assert self.graph.get_node_value("q_not") == False
+    
+    def test_sr_latch_set_operation(self):
+        """Test SET operation of SR NOR latch"""
+        self.graph.enter_simulation_mode()
+        
+        # Set S=1, R=0 (SET operation)
+        self.graph.set_input_value("set", True)
+        self.graph.set_input_value("reset", False)
+        
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Should set Q=1, Q̅=0
+        assert self.graph.get_node_value("q") == True
+        assert self.graph.get_node_value("q_not") == False
+    
+    def test_sr_latch_reset_operation(self):
+        """Test RESET operation of SR NOR latch"""
+        self.graph.enter_simulation_mode()
+        
+        # First set the latch
+        self.graph.set_input_value("set", True)
+        self.graph.set_input_value("reset", False)
+        self.graph.simulate()
+        
+        # Now reset: S=0, R=1
+        self.graph.set_input_value("set", False)
+        self.graph.set_input_value("reset", True)
+        
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Should reset Q=0, Q̅=1
+        assert self.graph.get_node_value("q") == False
+        assert self.graph.get_node_value("q_not") == True
+    
+    def test_sr_latch_hold_state(self):
+        """Test HOLD state of SR NOR latch"""
+        self.graph.enter_simulation_mode()
+        
+        # Set the latch first
+        self.graph.set_input_value("set", True)
+        self.graph.set_input_value("reset", False)
+        self.graph.simulate()
+        
+        # Verify it's set
+        assert self.graph.get_node_value("q") == True
+        assert self.graph.get_node_value("q_not") == False
+        
+        # Now go to hold state: S=0, R=0
+        self.graph.set_input_value("set", False)
+        self.graph.set_input_value("reset", False)
+        
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Should maintain previous state
+        assert self.graph.get_node_value("q") == True
+        assert self.graph.get_node_value("q_not") == False
+    
+    def test_sr_latch_invalid_state(self):
+        """Test invalid state S=1, R=1 of SR NOR latch"""
+        self.graph.enter_simulation_mode()
+        
+        # Set S=1, R=1 (invalid/forbidden state)
+        self.graph.set_input_value("set", True)
+        self.graph.set_input_value("reset", True)
+        
+        result = self.graph.simulate()
+        assert result == True
+        
+        # Should result in Q=0, Q̅=0 (both outputs low)
+        assert self.graph.get_node_value("q") == False
+        assert self.graph.get_node_value("q_not") == False
+    
+    def test_iterative_simulation_convergence(self):
+        """Test that iterative simulation properly converges"""
+        self.graph.enter_simulation_mode()
+        
+        # Test multiple input changes to ensure convergence works
+        for set_val in [False, True, False]:
+            for reset_val in [False, True, False]:
+                if not (set_val and reset_val):  # Skip invalid state
+                    self.graph.set_input_value("set", set_val)
+                    self.graph.set_input_value("reset", reset_val)
+                    
+                    result = self.graph.simulate()
+                    assert result == True  # Should always converge
+    
+    def test_combinational_circuit_still_works(self):
+        """Test that combinational circuits still work with new system"""
+        # Create a simple combinational circuit (no feedback)
+        from logicsim.graph_data import GraphData, Node, Connection, NODE_REGISTRY
+        
+        graph = GraphData()
+        
+        # Create nodes: Input -> NOT -> Output
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50)
+        not_node = Node.create("not1", NODE_REGISTRY.get_definition("not"), 150, 50)
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 250, 50)
+        
+        graph.add_node(input_node)
+        graph.add_node(not_node)
+        graph.add_node(output_node)
+        
+        # Add connection
+        conn = Connection("c1", "input1", "out", "not1", "in")
+        graph.add_connection(conn)
+        conn2 = Connection("c2", "not1", "out", "output1", "in")
+        graph.add_connection(conn2)
+        
+        # Test simulation
+        graph.enter_simulation_mode()
+        graph.set_input_value("input1", True)
+        
+        result = graph.simulate()
+        assert result == True
+        
+        # Should use single-pass combinational simulation
+        assert graph.get_node_value("output1") == False  # NOT True = False

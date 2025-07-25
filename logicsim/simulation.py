@@ -87,6 +87,26 @@ class CircuitEvaluator:
         self.logger.debug(f"NOT gate: {inputs} -> {result}")
         return result
     
+    def _evaluate_nor_gate(self, inputs: List[bool]) -> bool:
+        """
+        Evaluate a NOR gate with the given inputs.
+        
+        Args:
+            inputs: List of boolean input values
+            
+        Returns:
+            bool: True if ALL inputs are False, False otherwise (NOT OR)
+            
+        Raises:
+            ValueError: If inputs list is empty or has wrong number of inputs
+        """
+        if len(inputs) != 2:
+            raise ValueError(f"NOR gate requires exactly 2 inputs, got {len(inputs)}")
+        
+        result = not (inputs[0] or inputs[1])
+        self.logger.debug(f"NOR gate: {inputs} -> {result}")
+        return result
+    
     def evaluate_node(self, node: Node, input_values: List[bool]) -> bool:
         """
         Evaluate a node based on its type and input values.
@@ -107,6 +127,8 @@ class CircuitEvaluator:
             return self._evaluate_or_gate(input_values)
         elif node.node_type == "not":
             return self._evaluate_not_gate(input_values)
+        elif node.node_type == "nor":
+            return self._evaluate_nor_gate(input_values)
         elif node.node_type == "input":
             # Input nodes don't process inputs - they provide their own value
             if node.value is None:
