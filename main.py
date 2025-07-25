@@ -121,6 +121,7 @@ def main():
         
         main_window.toolbox_items = slint.ListModel(slint_toolbox_items)
         main_window.toolbox_creation_mode = graph_data['toolbox_creation_mode']
+        main_window.simulation_mode = graph_data['simulation_mode']
     
     def handle_graph_pointer_event(kind, x, y):
         """Handle pointer event on graph area"""
@@ -254,51 +255,33 @@ def main():
         
         main_window.toolbox_node_type_clicked = handle_toolbox_node_type_clicked
         
-        # Connect simulation callbacks
-        def handle_simulate_clicked():
-            """Handle simulate button click"""
+        # Connect mode transition callbacks
+        def handle_enter_simulation_clicked():
+            """Handle enter simulation mode button click"""
             if graph is None:
                 return
             
-            logger.info("Simulate button clicked")
-            try:
-                # Check if all input nodes have values set
-                input_nodes = [node for node in graph.nodes.values() if node.node_type == "input"]
-                unset_inputs = [node.id for node in input_nodes if node.value is None]
-                
-                if unset_inputs:
-                    logger.warning(f"Cannot simulate: input nodes need values: {unset_inputs}")
-                    # TODO: Add user-visible warning message in future enhancement
-                    return
-                
-                # Run simulation
-                success = graph.simulate()
-                if success:
-                    logger.info("Circuit simulation completed successfully")
-                    refresh_ui_data()
-                else:
-                    logger.error("Circuit simulation failed")
-                    
-            except ValueError as e:
-                logger.error(f"Simulation error: {e}")
-                # TODO: Add user-visible error message in future enhancement
-        
-        def handle_reset_clicked():
-            """Handle reset button click"""
-            if graph is None:
-                return
-            
-            logger.info("Reset button clicked")
-            ui_needs_refresh = graph.reset_simulation()
+            logger.info("Enter simulation mode button clicked")
+            ui_needs_refresh = graph.enter_simulation_mode()
             
             if ui_needs_refresh:
-                logger.debug("Simulation state cleared, refreshing UI")
+                logger.debug("Entered simulation mode, refreshing UI")
                 refresh_ui_data()
-            else:
-                logger.debug("No simulation state to clear")
         
-        main_window.simulate_clicked = handle_simulate_clicked
-        main_window.reset_clicked = handle_reset_clicked
+        def handle_enter_edit_clicked():
+            """Handle enter edit mode button click"""
+            if graph is None:
+                return
+            
+            logger.info("Enter edit mode button clicked")
+            ui_needs_refresh = graph.enter_edit_mode()
+            
+            if ui_needs_refresh:
+                logger.debug("Entered edit mode, refreshing UI")
+                refresh_ui_data()
+        
+        main_window.enter_simulation_clicked = handle_enter_simulation_clicked
+        main_window.enter_edit_clicked = handle_enter_edit_clicked
         
         logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['connections'])} connections")
         

@@ -228,6 +228,9 @@ class GraphData:
         self.selected_node_type: str | None = None
         self.toolbox_creation_mode: bool = False
         
+        # Simulation mode state tracking
+        self.simulation_mode: bool = False  # False = Edit Mode, True = Simulation Mode
+        
         self.logger = logging.getLogger(__name__)
         
         # Import here to avoid circular imports
@@ -429,8 +432,9 @@ class GraphData:
     
     def toggle_input_node(self, node_id: str) -> bool:
         """
-        Toggle the value of an input node between True, False, and None.
-        Cycle: None -> True -> False -> None
+        Toggle the value of an input node.
+        - In Edit Mode: Cycle None -> True -> False -> None
+        - In Simulation Mode: Cycle True -> False -> True (with auto-simulation)
         
         Args:
             node_id: ID of the input node to toggle
@@ -448,16 +452,87 @@ class GraphData:
         if node.node_type != "input":
             raise ValueError(f"Node '{node_id}' is not an input node (type: {node.node_type})")
         
-        # Cycle through: None -> True -> False -> None
-        if node.value is None:
-            node.value = True
-        elif node.value is True:
-            node.value = False
-        else:  # node.value is False
-            node.value = None
+        if self.simulation_mode:
+            # In simulation mode: toggle between True and False only
+            node.value = not node.value
+            self.logger.debug(f"Toggled input node '{node_id}' to: {node.value}")
+            
+            # Auto-simulate the circuit after input change
+            try:
+                self.simulate()
+                self.logger.debug("Auto-simulation completed after input toggle")
+            except ValueError as e:
+                self.logger.error(f"Auto-simulation failed: {e}")
+        else:
+            # In edit mode: cycle through None -> True -> False -> None
+            if node.value is None:
+                node.value = True
+            elif node.value is True:
+                node.value = False
+            else:  # node.value is False
+                node.value = None
+            
+            self.logger.debug(f"Toggled input node '{node_id}' to: {node.value}")
         
-        self.logger.debug(f"Toggled input node '{node_id}' to: {node.value}")
         return True  # UI should refresh to show new value
+    
+    def enter_simulation_mode(self) -> bool:
+        """
+        Enter simulation mode. Initialize all input nodes with False value and disable editing.
+        
+        Returns:
+            bool: True if UI should be refreshed
+        """
+        if self.simulation_mode:
+            self.logger.debug("Already in simulation mode")
+            return False
+        
+        self.logger.info("Entering simulation mode")
+        self.simulation_mode = True
+        
+        # Initialize all input nodes with False value (default)
+        for node in self.nodes.values():
+            if node.node_type == "input":
+                node.value = False
+                self.logger.debug(f"Set input node '{node.id}' to default value: False")
+        
+        # Clear any active editing states
+        if self.editing_node_id is not None:
+            self.editing_node_id = None
+            self.editing_text = ""
+        
+        # Clear toolbox selection
+        if self.selected_node_type is not None or self.toolbox_creation_mode:
+            self.selected_node_type = None
+            self.toolbox_creation_mode = False
+        
+        return True  # Always refresh to update button states
+    
+    def enter_edit_mode(self) -> bool:
+        """
+        Enter edit mode. Re-enable all editing functionality.
+        
+        Returns:
+            bool: True if UI should be refreshed
+        """
+        if not self.simulation_mode:
+            self.logger.debug("Already in edit mode")
+            return False
+        
+        self.logger.info("Entering edit mode")
+        self.simulation_mode = False
+        
+        # Reset all node values to None (no value set)
+        ui_needs_refresh = False
+        for node in self.nodes.values():
+            if node.value is not None:
+                node.value = None
+                ui_needs_refresh = True
+        
+        if ui_needs_refresh:
+            self.logger.debug("Cleared all node values for edit mode")
+        
+        return True  # Always refresh to update button states
     
     def get_connector_absolute_position(self, node_id: str, connector_id: str) -> tuple[float, float]:
         """Get the absolute position of a connector"""
@@ -655,6 +730,10 @@ class GraphData:
     
     def delete_selected(self) -> bool:
         """Delete the currently selected node or connection. Returns True if something was deleted."""
+        if self.simulation_mode:
+            self.logger.debug("Deletion is blocked in simulation mode")
+            return False
+        
         if self.selected_node_id is not None:
             return self.delete_node(self.selected_node_id)
         elif self.selected_connection_id is not None:
@@ -826,6 +905,10 @@ class GraphData:
     
     def select_toolbox_node_type(self, node_type: str) -> bool:
         """Select a node type in the toolbox for creation. Returns True if UI should be refreshed."""
+        if self.simulation_mode:
+            self.logger.debug("Toolbox selection is blocked in simulation mode")
+            return False
+        
         if node_type not in NODE_REGISTRY.list_definitions():
             self.logger.warning(f"Cannot select unknown node type: {node_type}")
             return False
@@ -863,6 +946,10 @@ class GraphData:
     
     def create_node_at_position(self, node_type: str, x: float, y: float) -> bool:
         """Create a new node of the specified type at the given position. Returns True if UI should be refreshed."""
+        if self.simulation_mode:
+            self.logger.debug("Node creation is blocked in simulation mode")
+            return False
+        
         if node_type not in NODE_REGISTRY.list_definitions():
             self.logger.warning(f"Cannot create node of unknown type: {node_type}")
             return False
@@ -915,6 +1002,22 @@ class GraphData:
         """Handle pointer down event. Returns True if UI should be refreshed."""
         if self.pointer_state != PointerState.IDLE:
             self.logger.warning(f"Pointer down received while in state {self.pointer_state}")
+            return False
+        
+        # Block most editing operations in simulation mode
+        if self.simulation_mode:
+            # Only allow node selection (for input nodes) in simulation mode
+            clicked_node_id = self.get_node_at_position(x, y)
+            if clicked_node_id is not None:
+                # Select the node but don't allow dragging or other operations
+                if clicked_node_id != self.selected_node_id:
+                    self.select_node(clicked_node_id)
+                    return True
+            else:
+                # Clear selection when clicking empty area
+                if self.selected_node_id is not None:
+                    self.deselect_node()
+                    return True
             return False
         
         # If we're creating a connection, handle it first
@@ -971,6 +1074,10 @@ class GraphData:
     
     def handle_pointer_move(self, x: float, y: float) -> bool:
         """Handle pointer move event. Returns True if UI should be refreshed."""
+        # Block dragging and connection operations in simulation mode
+        if self.simulation_mode:
+            return False
+        
         # If we're creating a connection, update the pending connection
         if self.creating_connection:
             return self.update_pending_connection(x, y)
@@ -1003,6 +1110,13 @@ class GraphData:
     def handle_pointer_up(self, x: float, y: float) -> bool:
         """Handle pointer up event. Returns True if UI should be refreshed."""
         if self.pointer_state == PointerState.IDLE:
+            return False
+        
+        # In simulation mode, just reset pointer state and return
+        if self.simulation_mode:
+            self.pointer_state = PointerState.IDLE
+            self.drag_node_id = None
+            self.drag_offset = (0.0, 0.0)
             return False
         
         was_dragging = self.pointer_state == PointerState.DRAGGING
@@ -1105,12 +1219,17 @@ class GraphData:
         if clicked_node_id is not None:
             clicked_node = self.nodes[clicked_node_id]
             
-            # For input nodes, toggle their value instead of editing label
+            # For input nodes, toggle their value
             if clicked_node.node_type == "input":
                 return self.toggle_input_node(clicked_node_id)
             else:
-                # For other nodes, start editing the label
-                return self.start_label_edit(clicked_node_id)
+                # For other nodes, start editing the label only in edit mode
+                if not self.simulation_mode:
+                    return self.start_label_edit(clicked_node_id)
+                else:
+                    # In simulation mode, non-input nodes can't be edited
+                    self.logger.debug(f"Ignoring double-click on {clicked_node.node_type} node in simulation mode")
+                    return False
         
         return False
     
@@ -1223,7 +1342,8 @@ class GraphData:
             "pending_end_x": self.pending_connection_end_x,
             "pending_end_y": self.pending_connection_end_y,
             "toolbox_items": self.get_toolbox_data(),
-            "toolbox_creation_mode": self.toolbox_creation_mode
+            "toolbox_creation_mode": self.toolbox_creation_mode,
+            "simulation_mode": self.simulation_mode
         }
 
 

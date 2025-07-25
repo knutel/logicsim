@@ -3289,3 +3289,302 @@ class TestUIInteraction:
         input_node_data = next(node for node in slint_data['nodes'] if node['id'] == 'input_a')
         
         assert input_node_data['value'] == None  # None should be preserved in to_slint_format
+
+
+class TestModeBasedSimulation:
+    """Test cases for mode-based simulation functionality"""
+    
+    def setup_method(self):
+        """Set up test graph for each test"""
+        self.graph = GraphData()
+        
+        # Create test nodes
+        input_node = Node.create("input1", NODE_REGISTRY.get_definition("input"), 50, 50)
+        input_node2 = Node.create("input2", NODE_REGISTRY.get_definition("input"), 50, 120)
+        and_node = Node.create("and1", NODE_REGISTRY.get_definition("and"), 150, 85)
+        output_node = Node.create("output1", NODE_REGISTRY.get_definition("output"), 250, 85)
+        
+        self.graph.add_node(input_node)
+        self.graph.add_node(input_node2)
+        self.graph.add_node(and_node)
+        self.graph.add_node(output_node)
+        
+        # Create connections
+        conn1 = Connection("c1", "input1", "out", "and1", "in1")
+        conn2 = Connection("c2", "input2", "out", "and1", "in2")
+        conn3 = Connection("c3", "and1", "out", "output1", "in")
+        
+        self.graph.add_connection(conn1)
+        self.graph.add_connection(conn2)
+        self.graph.add_connection(conn3)
+    
+    def test_initial_mode_is_edit(self):
+        """Test that the graph starts in edit mode"""
+        assert self.graph.simulation_mode == False
+        slint_data = self.graph.to_slint_format()
+        assert slint_data['simulation_mode'] == False
+    
+    def test_enter_simulation_mode(self):
+        """Test entering simulation mode"""
+        # Initially None values
+        assert self.graph.get_node_value("input1") == None
+        assert self.graph.get_node_value("input2") == None
+        
+        result = self.graph.enter_simulation_mode()
+        
+        assert result == True
+        assert self.graph.simulation_mode == True
+        
+        # Input nodes should be initialized to False
+        assert self.graph.get_node_value("input1") == False
+        assert self.graph.get_node_value("input2") == False
+        
+        # Should be included in slint format
+        slint_data = self.graph.to_slint_format()
+        assert slint_data['simulation_mode'] == True
+    
+    def test_enter_simulation_mode_already_in_simulation(self):
+        """Test entering simulation mode when already in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        result = self.graph.enter_simulation_mode()
+        
+        assert result == False  # Should return False as no change was made
+        assert self.graph.simulation_mode == True
+    
+    def test_enter_edit_mode(self):
+        """Test entering edit mode from simulation mode"""
+        # Enter simulation mode first
+        self.graph.enter_simulation_mode()
+        self.graph.set_input_value("input1", True)
+        self.graph.set_input_value("input2", False)
+        
+        result = self.graph.enter_edit_mode()
+        
+        assert result == True
+        assert self.graph.simulation_mode == False
+        
+        # All node values should be reset to None
+        assert self.graph.get_node_value("input1") == None
+        assert self.graph.get_node_value("input2") == None
+        assert self.graph.get_node_value("and1") == None
+        assert self.graph.get_node_value("output1") == None
+        
+        # Should be included in slint format
+        slint_data = self.graph.to_slint_format()
+        assert slint_data['simulation_mode'] == False
+    
+    def test_enter_edit_mode_already_in_edit(self):
+        """Test entering edit mode when already in edit mode"""
+        result = self.graph.enter_edit_mode()
+        
+        assert result == False  # Should return False as no change was made
+        assert self.graph.simulation_mode == False
+    
+    def test_toggle_input_node_in_simulation_mode(self):
+        """Test toggling input nodes in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        # Initially False
+        assert self.graph.get_node_value("input1") == False
+        
+        # Toggle to True
+        with patch.object(self.graph, 'logger') as mock_logger:
+            result = self.graph.toggle_input_node("input1")
+        
+        assert result == True
+        assert self.graph.get_node_value("input1") == True
+        
+        # Toggle back to False
+        with patch.object(self.graph, 'logger') as mock_logger:
+            result = self.graph.toggle_input_node("input1")
+        
+        assert result == True
+        assert self.graph.get_node_value("input1") == False
+    
+    def test_toggle_input_node_in_edit_mode(self):
+        """Test toggling input nodes in edit mode (original behavior)"""
+        # Initially None
+        assert self.graph.get_node_value("input1") == None
+        
+        # Toggle to True
+        self.graph.toggle_input_node("input1")
+        assert self.graph.get_node_value("input1") == True
+        
+        # Toggle to False
+        self.graph.toggle_input_node("input1")
+        assert self.graph.get_node_value("input1") == False
+        
+        # Toggle back to None
+        self.graph.toggle_input_node("input1")
+        assert self.graph.get_node_value("input1") == None
+    
+    def test_auto_simulation_on_input_toggle(self):
+        """Test that circuit is automatically simulated when input is toggled in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        with patch.object(self.graph, 'simulate') as mock_simulate:
+            mock_simulate.return_value = True
+            
+            self.graph.toggle_input_node("input1")
+            
+            mock_simulate.assert_called_once()
+    
+    def test_handle_double_click_simulation_mode_input_node(self):
+        """Test double-clicking input nodes in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        # Double-click on input node should toggle its value
+        result = self.graph.handle_double_click(60.0, 60.0)  # Click on input1
+        
+        assert result == True
+        assert self.graph.get_node_value("input1") == True  # Should toggle from False to True
+    
+    def test_handle_double_click_simulation_mode_non_input_node(self):
+        """Test double-clicking non-input nodes in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            # Double-click on non-input node should do nothing
+            result = self.graph.handle_double_click(160.0, 95.0)  # Click on and1
+        
+        assert result == False
+        assert self.graph.editing_node_id == None  # Should not start editing
+        mock_logger.debug.assert_called_with("Ignoring double-click on and node in simulation mode")
+    
+    def test_handle_double_click_edit_mode_non_input_node(self):
+        """Test double-clicking non-input nodes in edit mode"""
+        # Should start label editing as before
+        result = self.graph.handle_double_click(160.0, 95.0)  # Click on and1
+        
+        assert result == True
+        assert self.graph.editing_node_id == "and1"  # Should start editing
+    
+    def test_pointer_down_simulation_mode_blocks_editing(self):
+        """Test that pointer down in simulation mode blocks most editing operations"""
+        self.graph.enter_simulation_mode()
+        
+        # Should allow node selection but not dragging or connection creation
+        result = self.graph.handle_pointer_down(60.0, 60.0)  # Click on input1
+        
+        assert result == True
+        assert self.graph.selected_node_id == "input1"  # Should select node
+        assert self.graph.pointer_state == PointerState.IDLE  # Should not enter pressed state
+    
+    def test_pointer_move_simulation_mode_blocked(self):
+        """Test that pointer move in simulation mode is blocked"""
+        self.graph.enter_simulation_mode()
+        
+        result = self.graph.handle_pointer_move(100.0, 100.0)
+        
+        assert result == False  # Should be blocked
+    
+    def test_pointer_up_simulation_mode_resets_state(self):
+        """Test that pointer up in simulation mode resets state properly"""
+        self.graph.enter_simulation_mode()
+        self.graph.pointer_state = PointerState.PRESSED  # Simulate pressed state
+        
+        result = self.graph.handle_pointer_up(100.0, 100.0)
+        
+        assert result == False
+        assert self.graph.pointer_state == PointerState.IDLE
+    
+    def test_create_node_blocked_in_simulation_mode(self):
+        """Test that node creation is blocked in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            result = self.graph.create_node_at_position("input", 100.0, 100.0)
+        
+        assert result == False
+        mock_logger.debug.assert_called_with("Node creation is blocked in simulation mode")
+    
+    def test_delete_selected_blocked_in_simulation_mode(self):
+        """Test that deletion is blocked in simulation mode"""
+        self.graph.enter_simulation_mode()
+        self.graph.select_node("input1")
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            result = self.graph.delete_selected()
+        
+        assert result == False
+        mock_logger.debug.assert_called_with("Deletion is blocked in simulation mode")
+        assert "input1" in self.graph.nodes  # Node should still exist
+    
+    def test_toolbox_selection_blocked_in_simulation_mode(self):
+        """Test that toolbox node type selection is blocked in simulation mode"""
+        self.graph.enter_simulation_mode()
+        
+        with patch.object(self.graph, 'logger') as mock_logger:
+            result = self.graph.select_toolbox_node_type("input")
+        
+        assert result == False
+        mock_logger.debug.assert_called_with("Toolbox selection is blocked in simulation mode")
+        assert self.graph.selected_node_type == None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_mode_transition_clears_editing_states(self):
+        """Test that mode transitions clear active editing states"""
+        # Start label editing (this should work in edit mode)
+        result = self.graph.start_label_edit("input1")
+        assert result == True
+        assert self.graph.editing_node_id == "input1"
+        
+        # Select toolbox node type separately (this clears other states)
+        self.graph.cancel_label_edit()
+        result = self.graph.select_toolbox_node_type("and")
+        assert result == True
+        assert self.graph.selected_node_type == "and"
+        assert self.graph.toolbox_creation_mode == True
+        
+        # Enter simulation mode should clear these states
+        self.graph.enter_simulation_mode()
+        
+        assert self.graph.editing_node_id == None
+        assert self.graph.editing_text == ""
+        assert self.graph.selected_node_type == None
+        assert self.graph.toolbox_creation_mode == False
+    
+    def test_input_nodes_default_false_in_simulation_mode(self):
+        """Test that input nodes get default False value when entering simulation mode"""
+        # Set some input values in edit mode
+        self.graph.set_input_value("input1", True)
+        self.graph.set_input_value("input2", None)  # Explicitly set to None
+        
+        # Enter simulation mode
+        self.graph.enter_simulation_mode()
+        
+        # Both should be False now
+        assert self.graph.get_node_value("input1") == False  # Changed from True
+        assert self.graph.get_node_value("input2") == False  # Changed from None
+    
+    def test_complete_workflow_edit_simulate_edit(self):
+        """Test complete workflow: edit -> simulation -> edit"""
+        # Start in edit mode
+        assert self.graph.simulation_mode == False
+        
+        # Set up circuit in edit mode
+        self.graph.set_input_value("input1", True)
+        self.graph.set_input_value("input2", True)
+        
+        # Enter simulation mode
+        self.graph.enter_simulation_mode()
+        assert self.graph.simulation_mode == True
+        assert self.graph.get_node_value("input1") == False  # Reset to default
+        assert self.graph.get_node_value("input2") == False  # Reset to default
+        
+        # Toggle inputs in simulation mode
+        self.graph.toggle_input_node("input1")  # False -> True
+        self.graph.toggle_input_node("input2")  # False -> True
+        assert self.graph.get_node_value("input1") == True
+        assert self.graph.get_node_value("input2") == True
+        
+        # Exit to edit mode
+        self.graph.enter_edit_mode()
+        assert self.graph.simulation_mode == False
+        
+        # All values should be None again
+        assert self.graph.get_node_value("input1") == None
+        assert self.graph.get_node_value("input2") == None
+        assert self.graph.get_node_value("and1") == None
+        assert self.graph.get_node_value("output1") == None

@@ -21,6 +21,7 @@ export component MainWindow inherits Window {
     in property <length> pending-end-y;
     in property <[NodeTypeData]> toolbox-items: [];
     in property <bool> toolbox-creation-mode: false;
+    in property <bool> simulation-mode: false;
     
     // Callback for handling graph pointer events
     callback graph-pointer-event(string, float, float);
@@ -28,8 +29,8 @@ export component MainWindow inherits Window {
     callback label-edit-changed(string);
     callback delete-clicked();
     callback toolbox-node-type-clicked(string);
-    callback simulate-clicked();
-    callback reset-clicked();
+    callback enter-simulation-clicked();
+    callback enter-edit-clicked();
     
     
     VerticalBox {
@@ -98,24 +99,22 @@ export component MainWindow inherits Window {
             height: 40px;
             
             Button {
-                text: "Reset";
-                width: 80px;
+                text: root.simulation-mode ? "Enter Edit" : "Enter Simulation";
+                width: 120px;
+                enabled: true;
                 clicked => {
-                    root.reset-clicked();
-                }
-            }
-            
-            Button {
-                text: "Simulate";
-                width: 80px;
-                clicked => {
-                    root.simulate-clicked();
+                    if (root.simulation-mode) {
+                        root.enter-edit-clicked();
+                    } else {
+                        root.enter-simulation-clicked();
+                    }
                 }
             }
             
             Button {
                 text: "Delete";
                 width: 80px;
+                enabled: !root.simulation-mode;
                 clicked => {
                     root.delete-clicked();
                 }
