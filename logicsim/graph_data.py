@@ -146,27 +146,6 @@ class Net:
     def get_node_ids(self) -> Set[str]:
         """Get all unique node IDs connected to this net"""
         return {conn.node_id for conn in self.connectors}
-    
-    # Properties for backward compatibility with old two-point API
-    @property
-    def from_node_id(self) -> str:
-        """Get first connector's node ID for backward compatibility"""
-        return self.connectors[0].node_id if self.connectors else ""
-    
-    @property
-    def from_connector_id(self) -> str:
-        """Get first connector's connector ID for backward compatibility"""
-        return self.connectors[0].connector_id if self.connectors else ""
-    
-    @property
-    def to_node_id(self) -> str:
-        """Get second connector's node ID for backward compatibility"""
-        return self.connectors[1].node_id if len(self.connectors) > 1 else ""
-    
-    @property
-    def to_connector_id(self) -> str:
-        """Get second connector's connector ID for backward compatibility"""
-        return self.connectors[1].connector_id if len(self.connectors) > 1 else ""
 
 
 class NodeDefinitionRegistry:
@@ -971,14 +950,21 @@ class GraphData:
         return None
     
     def is_point_on_net(self, net: Net, x: float, y: float, tolerance: float = 8.0) -> bool:
-        """Check if point (x,y) is within tolerance distance of net line"""
-        # Get net endpoints
-        start_x, start_y = self.get_connector_absolute_position(net.from_node_id, net.from_connector_id)
-        end_x, end_y = self.get_connector_absolute_position(net.to_node_id, net.to_connector_id)
+        """Check if point (x,y) is within tolerance distance of any net line segment"""
+        # Get all line segments for this net
+        segments = self._calculate_net_segments(net)
         
-        # Calculate distance from point to line segment
-        distance = self.point_to_line_segment_distance(x, y, start_x, start_y, end_x, end_y)
-        return distance <= tolerance
+        # Check if point is close to any segment
+        for segment in segments:
+            distance = self.point_to_line_segment_distance(
+                x, y, 
+                segment["start_x"], segment["start_y"], 
+                segment["end_x"], segment["end_y"]
+            )
+            if distance <= tolerance:
+                return True
+        
+        return False
     
     def point_to_line_segment_distance(self, px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
         """Calculate the distance from a point to a line segment"""
@@ -1800,21 +1786,18 @@ class GraphData:
             }
             slint_nodes.append(slint_node)
         
-        # Convert nets with calculated positions and values
+        # Convert nets with calculated positions and values using line segments
         slint_nets = []
         for net in self.nets.values():
-            start_x, start_y = self.get_connector_absolute_position(net.from_node_id, net.from_connector_id)
-            end_x, end_y = self.get_connector_absolute_position(net.to_node_id, net.to_connector_id)
+            # Generate line segments for this net
+            segments = self._calculate_net_segments(net)
             
             # Get net value for simulation mode visualization
             net_value, has_net_value = self._get_net_value(net)
             
             slint_net = {
                 "id": net.id,
-                "start_x": start_x,
-                "start_y": start_y,
-                "end_x": end_x,
-                "end_y": end_y,
+                "segments": segments,
                 "value": net_value,
                 "has_value": has_net_value,
                 "simulation_mode": self.simulation_mode
@@ -1844,6 +1827,61 @@ class GraphData:
             "toolbox_creation_mode": self.toolbox_creation_mode,
             "simulation_mode": self.simulation_mode
         }
+
+    def _calculate_net_segments(self, net: Net) -> List[Dict[str, float]]:
+        """
+        Calculate line segments for rendering a net.
+        
+        For 2 connectors: direct line
+        For 3+ connectors: star topology (center point to each connector)
+        
+        Returns:
+            List of segment dictionaries with start_x, start_y, end_x, end_y
+        """
+        if len(net.connectors) < 2:
+            # Invalid net - return empty segments
+            return []
+        
+        segments = []
+        
+        if len(net.connectors) == 2:
+            # Direct line between two connectors
+            conn1, conn2 = net.connectors[0], net.connectors[1]
+            start_x, start_y = self.get_connector_absolute_position(conn1.node_id, conn1.connector_id)
+            end_x, end_y = self.get_connector_absolute_position(conn2.node_id, conn2.connector_id)
+            
+            segments.append({
+                "start_x": start_x,
+                "start_y": start_y,
+                "end_x": end_x,
+                "end_y": end_y
+            })
+        else:
+            # Star topology for 3+ connectors
+            # Calculate center point as average of all connector positions
+            total_x = 0.0
+            total_y = 0.0
+            connector_positions = []
+            
+            for conn in net.connectors:
+                x, y = self.get_connector_absolute_position(conn.node_id, conn.connector_id)
+                connector_positions.append((x, y))
+                total_x += x
+                total_y += y
+            
+            center_x = total_x / len(net.connectors)
+            center_y = total_y / len(net.connectors)
+            
+            # Create line segments from center to each connector
+            for x, y in connector_positions:
+                segments.append({
+                    "start_x": center_x,
+                    "start_y": center_y,
+                    "end_x": x,
+                    "end_y": y
+                })
+        
+        return segments
 
 
 def create_demo_graph() -> GraphData:

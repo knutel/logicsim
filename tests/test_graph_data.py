@@ -372,10 +372,6 @@ class TestNet:
         )
         
         assert net.id == "net1"
-        assert net.from_node_id == "node1"
-        assert net.from_connector_id == "out"
-        assert net.to_node_id == "node2"
-        assert net.to_connector_id == "in"
         assert len(net.connectors) == 2
         assert net.connectors[0].node_id == "node1"
         assert net.connectors[0].connector_id == "out"
@@ -398,12 +394,6 @@ class TestNet:
         assert net.connectors[0].connector_id == "out"
         assert net.connectors[3].node_id == "node4"
         assert net.connectors[3].connector_id == "in3"
-        
-        # Test backward compatibility properties
-        assert net.from_node_id == "node1"
-        assert net.from_connector_id == "out"
-        assert net.to_node_id == "node2"
-        assert net.to_connector_id == "in1"
     
     def test_net_add_connector(self):
         """Test adding connectors to existing net"""
@@ -930,10 +920,14 @@ class TestGraphData:
         # Check net structure
         conn_data = result["nets"][0]
         assert conn_data["id"] == "conn1"
-        assert conn_data["start_x"] == 99.0  # 50 + 46 + 3
-        assert conn_data["start_y"] == 74.0  # 50 + 21 + 3
-        assert conn_data["end_x"] == 199.0   # 200 + (-4) + 3
-        assert conn_data["end_y"] == 94.0    # 80 + 11 + 3 (0.25 * 60 - 4 = 11)
+        # Check that net has segments
+        assert "segments" in conn_data
+        assert len(conn_data["segments"]) == 1  # Two-point net should have one segment
+        segment = conn_data["segments"][0]
+        assert segment["start_x"] == 99.0  # 50 + 46 + 3
+        assert segment["start_y"] == 74.0  # 50 + 21 + 3
+        assert segment["end_x"] == 199.0   # 200 + (-4) + 3
+        assert segment["end_y"] == 94.0    # 80 + 11 + 3 (0.25 * 60 - 4 = 11)
     
     def test_to_slint_format_with_node_states(self):
         """Test Slint format conversion includes node state values"""
@@ -1456,8 +1450,11 @@ class TestGraphDataMovement:
         # Get initial net position
         initial_result = self.graph.to_slint_format()
         initial_conn = initial_result["nets"][0]
-        initial_start_x = initial_conn["start_x"]
-        initial_start_y = initial_conn["start_y"]
+        initial_segment = initial_conn["segments"][0]
+        initial_start_x = initial_segment["start_x"]
+        initial_start_y = initial_segment["start_y"]
+        initial_end_x = initial_segment["end_x"]
+        initial_end_y = initial_segment["end_y"]
         
         # Move node1
         self.graph.move_node("node1", 200, 200)
@@ -1465,14 +1462,15 @@ class TestGraphDataMovement:
         # Check that net positions updated
         updated_result = self.graph.to_slint_format()
         updated_conn = updated_result["nets"][0]
+        updated_segment = updated_conn["segments"][0]
         
         # Start position should have changed (node1 moved)
-        assert updated_conn["start_x"] != initial_start_x
-        assert updated_conn["start_y"] != initial_start_y
+        assert updated_segment["start_x"] != initial_start_x
+        assert updated_segment["start_y"] != initial_start_y
         
         # End position should be unchanged (node2 didn't move)
-        assert updated_conn["end_x"] == initial_conn["end_x"]
-        assert updated_conn["end_y"] == initial_conn["end_y"]
+        assert updated_segment["end_x"] == initial_end_x
+        assert updated_segment["end_y"] == initial_end_y
 
 
 class TestCreateDemoGraph:
@@ -1529,10 +1527,11 @@ class TestCreateDemoGraph:
         for conn_id, from_node, from_conn, to_node, to_conn in expected_nets:
             assert conn_id in graph.nets
             net = graph.nets[conn_id]
-            assert net.from_node_id == from_node
-            assert net.from_connector_id == from_conn
-            assert net.to_node_id == to_node
-            assert net.to_connector_id == to_conn
+            # Check that net has exactly 2 connectors matching the expected connections
+            assert len(net.connectors) == 2
+            connector_pairs = {(conn.node_id, conn.connector_id) for conn in net.connectors}
+            expected_pairs = {(from_node, from_conn), (to_node, to_conn)}
+            assert connector_pairs == expected_pairs
     
     def test_demo_graph_slint_format(self):
         """Test that demo graph can be converted to Slint format"""
@@ -2563,10 +2562,10 @@ class TestGraphDataNetCreation:
         
         # Check the created net
         net = list(self.graph.nets.values())[0]
-        assert net.from_node_id == "input1"
-        assert net.from_connector_id == "out"
-        assert net.to_node_id == "and1"
-        assert net.to_connector_id == "in1"
+        assert len(net.connectors) == 2
+        connector_pairs = {(conn.node_id, conn.connector_id) for conn in net.connectors}
+        expected_pairs = {("input1", "out"), ("and1", "in1")}
+        assert connector_pairs == expected_pairs
     
     def test_complete_net_creation_not_creating(self):
         """Test completing when not in creation mode"""

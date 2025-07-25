@@ -86,12 +86,20 @@ def main():
         # Convert nets to Slint format
         slint_nets = []
         for net in graph_data['nets']:
+            # Convert segments to Slint format
+            slint_segments = []
+            for segment in net['segments']:
+                slint_segment = {
+                    "start_x": float(segment['start_x']),
+                    "start_y": float(segment['start_y']),
+                    "end_x": float(segment['end_x']),
+                    "end_y": float(segment['end_y'])
+                }
+                slint_segments.append(slint_segment)
+            
             slint_net = {
                 "id": str(net['id']),
-                "start_x": float(net['start_x']),
-                "start_y": float(net['start_y']),
-                "end_x": float(net['end_x']),
-                "end_y": float(net['end_y']),
+                "segments": slint.ListModel(slint_segments),
                 "value": bool(net['value']),
                 "has_value": bool(net['has_value']),
                 "simulation_mode": bool(net['simulation_mode'])
@@ -295,7 +303,7 @@ def main():
         
         logger.debug("Graph nets:")
         for net in graph_data['nets']:
-            logger.debug(f"  {net['id']}: ({net['start_x']}, {net['start_y']}) -> ({net['end_x']}, {net['end_y']})")
+            logger.debug(f"  {net['id']}: {len(net['segments'])} segments")
         
         # Use the refresh function to set initial data
         refresh_ui_data()

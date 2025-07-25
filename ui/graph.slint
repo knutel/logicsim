@@ -18,12 +18,9 @@ export component Connector {
 }
 
 
-// Net line component using Path
+// Net line component using Path with multiple segments
 export component NetLine {
-    in property <length> start-x;
-    in property <length> start-y;
-    in property <length> end-x;
-    in property <length> end-y;
+    in property <[{start_x: length, start_y: length, end_x: length, end_y: length}]> segments;
     in property <bool> is-selected: false;
     in property <bool> value: false;
     in property <bool> has-value: false;
@@ -46,7 +43,8 @@ export component NetLine {
     width: 100%;
     height: 100%;
     
-    Path {
+    // Render each segment as a separate Path element
+    for segment in segments: Path {
         x: parent.x;
         y: parent.y;
         width: parent.width;
@@ -58,12 +56,12 @@ export component NetLine {
         stroke-width: line-width;
         
         MoveTo {
-            x: start-x / 1px;
-            y: start-y / 1px;
+            x: segment.start_x / 1px;
+            y: segment.start_y / 1px;
         }
         LineTo {
-            x: end-x / 1px;
-            y: end-y / 1px;
+            x: segment.end_x / 1px;
+            y: segment.end_y / 1px;
         }
     }
 }
@@ -131,10 +129,7 @@ export struct NodeData {
 // Net data structure
 export struct NetData {
     id: string,
-    start_x: length,
-    start_y: length,
-    end_x: length,
-    end_y: length,
+    segments: [{start_x: length, start_y: length, end_x: length, end_y: length}], // List of line segments that make up this net
     value: bool,           // Logical value carried by this net
     has_value: bool,       // Whether the net carries a valid value
     simulation_mode: bool, // Whether we're in simulation mode
@@ -252,10 +247,7 @@ export component GraphView {
             
             // Dynamic nets rendering
             for net in nets: NetLine {
-                start-x: net.start_x;
-                start-y: net.start_y;
-                end-x: net.end_x;
-                end-y: net.end_y;
+                segments: net.segments;
                 is-selected: selected-nets.length > 0 && selected-nets[0] == net.id;
                 value: net.value;
                 has-value: net.has_value;
