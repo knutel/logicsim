@@ -1,5 +1,9 @@
 # LogicSim - Logic Circuit Simulator
 
+> [!CAUTION]
+> This is an experiment to see what Claude Code can do. Virtually all the code, including this README, is authored by Claude Code. Apart from some high level decisions, no effort has been made to ensure the quality of the codebase. The commits that are not marked as co-authored by Claude were done by me to sort out some quirks that I could not get Claude to fix on its own. This might be a failure of my prompting skills.
+> Almost all demonstrations of AI coding, or vibe coding, are doing trivial ToDo apps or the like. This is an attempt at doing something useful instead.
+
 A modern, interactive logic circuit simulator built with Python and Slint UI, featuring advanced net routing with waypoints and real-time simulation capabilities.
 
 ![LogicSim Screenshot](Screenshot%202025-07-25%20224113.png)
